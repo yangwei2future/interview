@@ -140,24 +140,54 @@ public class EnterpriseThreadPool {
     }
 
     /**
-     * 动态调整线程数（对接 Apollo 配置变更回调）
-     * 示例：
-     *   @ApolloConfigChangeListener
-     *   public void onChange(ConfigChangeEvent event) {
-     *       pool.resize(config.getInt("core"), config.getInt("max"));
-     *   }
+     * 动态调整线程数，由 Apollo 配置变更回调触发。
+     *
+     * Apollo 配置 Key 规范（在 Apollo 控制台配置）：
+     *   threadpool.{name}.coreSize    核心线程数
+     *   threadpool.{name}.maxSize     最大线程数
+     *
+     * Spring Bean 接入示例：
+     * <pre>
+     * {@literal @}Component
+     * public class OrderThreadPoolConfig {
+     *
+     *     private final EnterpriseThreadPool pool = EnterpriseThreadPool.builder("order-async")
+     *             .coreSize(${threadpool.order-async.coreSize:4})
+     *             .maxSize(${threadpool.order-async.maxSize:8})
+     *             .build();
+     *
+     *     // Apollo 推送新配置时自动回调，无需重启
+     *     {@literal @}ApolloConfigChangeListener
+     *     public void onChange(ConfigChangeEvent event) {
+     *         if (event.isChanged("threadpool.order-async.coreSize")
+     *                 || event.isChanged("threadpool.order-async.maxSize")) {
+     *             int newCore = Integer.parseInt(event.getChange("threadpool.order-async.coreSize").getNewValue());
+     *             int newMax  = Integer.parseInt(event.getChange("threadpool.order-async.maxSize").getNewValue());
+     *             pool.resize(newCore, newMax);
+     *         }
+     *     }
+     * }
+     * </pre>
      */
     public void resize(int newCoreSize, int newMaxSize) {
-        if (newMaxSize >= newCoreSize && newCoreSize > 0) {
-            // 必须先调大 max 再调大 core，否则 core > max 会抛异常
-            if (newMaxSize > executor.getMaximumPoolSize()) {
-                executor.setMaximumPoolSize(newMaxSize);
-                executor.setCorePoolSize(newCoreSize);
-            } else {
-                executor.setCorePoolSize(newCoreSize);
-                executor.setMaximumPoolSize(newMaxSize);
-            }
+        if (newCoreSize <= 0 || newMaxSize < newCoreSize) {
+            System.err.printf("[%s] resize 参数非法: core=%d max=%d，已忽略%n", name, newCoreSize, newMaxSize);
+            return;
         }
+        int oldCore = executor.getCorePoolSize();
+        int oldMax  = executor.getMaximumPoolSize();
+
+        // 扩容：先调大 max，再调大 core（避免 core > max 抛 IllegalArgumentException）
+        // 缩容：先调小 core，再调小 max
+        if (newMaxSize > oldMax) {
+            executor.setMaximumPoolSize(newMaxSize);
+            executor.setCorePoolSize(newCoreSize);
+        } else {
+            executor.setCorePoolSize(newCoreSize);
+            executor.setMaximumPoolSize(newMaxSize);
+        }
+        System.out.printf("[%s] 线程池已动态调整: core %d→%d  max %d→%d%n",
+                name, oldCore, newCoreSize, oldMax, newMaxSize);
     }
 
     /**
