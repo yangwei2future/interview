@@ -59,11 +59,62 @@ max 也满 → 触发拒绝策略
 
 ## 六、execute vs submit
 
-| | execute | submit |
-|--|---------|--------|
-| 返回值 | 无 | Future |
-| 异常处理 | 抛给 UncaughtExceptionHandler | **封装进 Future，不 get() 就丢失** |
-| 使用场景 | 不关心结果 | 需要返回值或捕获异常 |
+不只是返回值的区别，核心有三点不同。
+
+### 1. 返回值
+
+```java
+pool.execute(runnable)   // void，没有返回值
+pool.submit(callable)    // 返回 Future<T>，可以拿结果
+pool.submit(runnable)    // 也返回 Future<?>，但 get() 永远是 null
+```
+
+### 2. 异常处理行为（最重要）
+
+```java
+// execute：异常直接抛出，线程死亡
+pool.execute(() -> {
+    throw new RuntimeException("炸了");
+    // → 线程销毁，走 UncaughtExceptionHandler
+});
+
+// submit：异常被包进 Future，线程不死
+Future<?> f = pool.submit(() -> {
+    throw new RuntimeException("炸了");
+    // → 线程活着，异常藏在 f 里
+});
+f.get(); // → 这里才抛 ExecutionException，不调则异常永远丢失
+```
+
+### 3. afterExecute 钩子里拿到的异常不同
+
+```java
+protected void afterExecute(Runnable r, Throwable t) {
+    // execute 提交：t 直接就是异常对象
+    if (t != null) { log.error("execute 任务异常", t); }
+
+    // submit 提交：t 永远是 null，需要从 Future 里拆
+    if (t == null && r instanceof Future<?> f && f.isDone()) {
+        try { f.get(); } catch (ExecutionException e) { log.error("submit 任务异常", e.getCause()); }
+    }
+}
+```
+
+### 对比总结
+
+| | `execute()` | `submit()` |
+|--|-------------|-----------|
+| 返回值 | 无 | `Future<T>` |
+| 异常处理 | 直接抛，线程死亡 | 封进 Future，线程存活 |
+| 异常可见性 | `UncaughtExceptionHandler` | 必须 `get()` 才能感知 |
+| `afterExecute` 的 `t` 参数 | 就是异常 | 永远是 `null` |
+| 适用场景 | 不关心结果，允许异常外抛 | 需要结果，或需要控制异常处理时机 |
+
+### 生产选哪个？
+
+- 需要返回值 → `submit()`，但**必须 `get()`，否则异常丢失**
+- 不需要返回值 → 推荐也用 `submit()`，异常不会导致线程死亡
+- 用 `execute()` 必须配 `UncaughtExceptionHandler`，否则异常只打 stderr
 
 ## 七、异常处理最佳实践
 
