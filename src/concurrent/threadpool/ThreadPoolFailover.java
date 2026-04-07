@@ -196,8 +196,7 @@ public class ThreadPoolFailover {
 
         Thread.sleep(500);
         pool.printStats();
-        pool.shutdown();
-        pool.awaitTermination(5, TimeUnit.SECONDS);
+        pool.gracefulShutdown(5, TimeUnit.SECONDS);
         pool.printStats();
     }
 }
@@ -253,5 +252,23 @@ class MonitoredThreadPool extends ThreadPoolExecutor {
                 total, failedTasks.get(),
                 total > 0 ? (double) totalTimeMs.get() / total : 0,
                 getActiveCount(), getQueue().size());
+    }
+
+    /**
+     * 优雅关闭：等待任务完成，超时后强制中断
+     * @param timeout 最长等待时间
+     * @param unit    时间单位
+     */
+    void gracefulShutdown(long timeout, TimeUnit unit) {
+        shutdown();
+        try {
+            if (!awaitTermination(timeout, unit)) {
+                System.err.println("[MonitoredPool] 优雅关闭超时，强制 shutdownNow()");
+                shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 }
