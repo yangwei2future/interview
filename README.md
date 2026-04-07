@@ -24,6 +24,39 @@ src/
 - `.md` 知识点笔记
 - `.java` 代码示例（可直接运行）
 
+## 并发编程 / 线程池
+
+### ThreadPoolFailover.java — 线程池异常处理与故障恢复
+
+| Demo | 知识点 |
+|------|--------|
+| DEMO 1 | `execute()` vs `submit()` 异常行为差异，submit 异常静默丢失陷阱 |
+| DEMO 2 | 任务抛异常后线程被销毁，线程池自动补充新线程 |
+| DEMO 3 | 全局 `UncaughtExceptionHandler` 兜底捕获未处理异常 |
+| DEMO 4 | 优雅关闭：`shutdown()` + `awaitTermination()` + `shutdownNow()` |
+| DEMO 5 | 生产级监控线程池：`beforeExecute` / `afterExecute` 钩子统计耗时与失败数 |
+
+---
+
+### ThreadPoolBackpressureDemo.java — 任务堆积排查实战
+
+> 场景：队列积压持续增长，活跃线程始终等于 maxPoolSize，如何系统排查？
+
+| Demo | 场景 | 核心手段 |
+|------|------|---------|
+| DEMO 1 | **制造堆积** | 2 线程 + 慢任务(500ms) + 高频提交(50ms/个)，直观观察队列单调递增 |
+| DEMO 2 | **监控发现趋势** | 周期采样 `getQueue().size()` / `getActiveCount()` / `getCompletedTaskCount()`，通过趋势判断堆积阶段 |
+| DEMO 3 | **定位慢任务根因** | `beforeExecute` / `afterExecute` 打耗时，超阈值立刻告警，精确暴露慢SQL/HTTP超时/大文件IO |
+
+**排查三步法：**
+```
+1. 监控队列趋势          → queue 持续增长 = 生产 > 消费
+2. 确认线程全部繁忙      → active == maxPoolSize，扩容或减少任务耗时
+3. 找出慢任务            → 钩子记录耗时，告警 > 阈值的任务，定向优化
+```
+
+---
+
 ## 进度
 
 - [ ] Java 基础
@@ -32,7 +65,7 @@ src/
 - [ ] 设计模式
 - [ ] Spring
 - [ ] JVM
-- [ ] 并发编程
+- [x] 并发编程（线程池）
 - [ ] 数据库
 - [ ] 系统设计
 - [ ] 行为面试
