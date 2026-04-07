@@ -271,3 +271,81 @@ public void onChange(ConfigChangeEvent event) {
 ```
 
 > Apollo 推送配置变更 → 回调触发 → `resize()` 生效，全程无需重启。
+
+## 十六、线程池中线程挂了怎么处理
+
+### 两种提交方式的线程命运不同
+
+| | `execute()` | `submit()` |
+|--|------------|-----------|
+| 异常结果 | 线程**销毁**，线程池自动补新线程 | 线程**不死**，异常被封进 Future |
+| 异常可见性 | 走 `UncaughtExceptionHandler`，不设置只打 stderr | 不 `get()` 异常**永远丢失** |
+| 线程重建代价 | 有，频繁崩溃频繁重建 | 无 |
+
+### DEMO 1 的关键输出（线程自动补充）
+
+```
+任务2 → 线程[demo1-thread-2]   ← 原始线程
+任务4 → 线程[demo1-thread-3]   ← 线程2死了，自动补了 thread-3
+任务6 → 线程[demo1-thread-4]   ← 线程3死了，自动补了 thread-4
+线程池大小仍为: 2              ← 数量没变，但都是新线程
+```
+
+线程编号一直递增，证明旧线程死了一直在补新的，有持续的创建开销。
+
+### 四种处理手段（由浅到深）
+
+**方案一：`UncaughtExceptionHandler`（execute 场景）**
+
+```java
+threadFactory = r -> {
+    Thread t = new Thread(r);
+    t.setUncaughtExceptionHandler((thread, ex) ->
+        log.error("[线程异常] thread={} msg={}", thread.getName(), ex.getMessage(), ex)
+    );
+    return t;
+};
+```
+线程死了，但异常被感知记录，不会悄悄丢失。
+
+**方案二：`afterExecute` 钩子捞 Future 异常（submit 场景）**
+
+```java
+@Override
+protected void afterExecute(Runnable r, Throwable t) {
+    super.afterExecute(r, t);
+    if (t == null && r instanceof Future<?> future && future.isDone()) {
+        try {
+            future.get();
+        } catch (ExecutionException ee) {
+            log.error("submit 任务异常", ee.getCause());
+        }
+    }
+}
+```
+线程不死，异常从 Future 里捞出来统一处理。
+
+**方案三（最佳实践）：任务内部 `try-catch`，彻底不让线程死**
+
+```java
+pool.execute(() -> {
+    try {
+        bizService.process(order);
+    } catch (Exception e) {
+        log.error("[task=place-order] 异常，现场: orderId={}", order.getId(), e);
+        alertService.send("下单异常: " + e.getMessage());
+        // 线程正常退出，不死亡，不重建，性能最优
+    }
+});
+```
+
+三种方案对比：
+
+| 方案 | 线程存活 | 异常可见 | 推荐场景 |
+|------|---------|---------|---------|
+| 不处理 | 死，自动补 | 只打 stderr | 不可用 |
+| UncaughtExceptionHandler | 死，自动补 | ✅ 日志 | execute 兜底 |
+| afterExecute 捞 Future | 不死 | ✅ 日志 | submit 兜底 |
+| 任务内 try-catch | **不死** | ✅ 日志 + 告警 | **生产首选** |
+
+> `EnterpriseThreadPool` 的 `execute(taskName, runnable)` 已在内部封装了 `safeWrap`，任务异常自动消化，线程永远不会因业务异常而死亡。
