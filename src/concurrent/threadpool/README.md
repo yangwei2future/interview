@@ -224,3 +224,50 @@ pool.allowCoreThreadTimeOut(true);
 ```
 
 **适用场景**：任务量波动大，低峰期长时间无任务，不希望核心线程白白占用资源。代价是下次来任务时需要重新创建线程，有轻微延迟。
+
+## 十五、线程池创建后可以修改核心配置吗？
+
+**可以。** `ThreadPoolExecutor` 提供了运行时 setter，改完立刻生效，无需重启：
+
+```java
+pool.setCorePoolSize(int newCore)
+pool.setMaximumPoolSize(int newMax)
+pool.setKeepAliveTime(long time, TimeUnit unit)
+```
+
+各参数改完后 JDK 内部的处理行为：
+
+| 操作 | JDK 内部行为 |
+|------|-------------|
+| `coreSize` 调大 | 下次提交任务时自动创建新核心线程 |
+| `coreSize` 调小 | 超出的核心线程等空闲后自然销毁（不强杀） |
+| `maxSize` 调大 | 队列满时可以创建更多非核心线程 |
+| `maxSize` 调小 | 超出的非核心线程空闲后自然销毁 |
+
+**唯一不能改的是队列。** `workQueue` 在构造时是 `final` 的，没有 setter，队列容量必须在创建时就确定好。
+
+**调整顺序有陷阱：**
+
+```java
+// 扩容时：必须先调大 max，再调大 core
+// 否则瞬间出现 core > max，JDK 直接抛 IllegalArgumentException
+pool.setMaximumPoolSize(newMax);
+pool.setCorePoolSize(newCore);
+
+// 缩容时：反过来，先调小 core，再调小 max
+pool.setCorePoolSize(newCore);
+pool.setMaximumPoolSize(newMax);
+```
+
+**结合 Apollo 动态生效：**
+
+```java
+@ApolloConfigChangeListener
+public void onChange(ConfigChangeEvent event) {
+    int newCore = Integer.parseInt(event.getChange("threadpool.order-async.coreSize").getNewValue());
+    int newMax  = Integer.parseInt(event.getChange("threadpool.order-async.maxSize").getNewValue());
+    pool.resize(newCore, newMax);  // EnterpriseThreadPool 内部已处理调整顺序
+}
+```
+
+> Apollo 推送配置变更 → 回调触发 → `resize()` 生效，全程无需重启。
