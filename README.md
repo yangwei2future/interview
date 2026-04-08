@@ -66,7 +66,7 @@ src/
 - [x] 线程池动态配置（Apollo）
 - [x] ThreadFactory & UncaughtExceptionHandler
 - [x] synchronized 锁升级（偏向锁→轻量级锁→重量级锁）
-- [ ] volatile 可见性 & 禁止指令重排（happens-before）
+- [x] volatile 可见性 & 禁止指令重排（happens-before）
 - [ ] AQS 原理（ReentrantLock / CountDownLatch / Semaphore）
 - [ ] ConcurrentHashMap 1.7 vs 1.8 实现对比
 
