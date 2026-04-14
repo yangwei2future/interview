@@ -73,3 +73,6 @@ docker run -d \
   -v pgvector-data:/var/lib/postgresql/data \
   ankane/pgvector
 ```
+
+
+https://www.bilibili.com/video/BV1m8wYzZEeK/?spm_id_from=333.1007.tianma.1-1-1.click
