@@ -293,3 +293,161 @@ WHERE app_id = 'xxx' AND api_name = 'yyy' AND create_time > '2024-01-01'
 ### Q4：为什么不能无脑建索引？
 
 **答：** 索引不是越多越好。每次 INSERT、UPDATE、DELETE 操作，MySQL 除了修改数据本身，还要同步维护所有相关索引的 B+树（插入节点、重新平衡）。索引越多，写操作越慢。应该根据高频查询场景有针对性地建索引。
+
+---
+
+## 十、索引失效场景
+
+以为走了索引，实际全表扫描，是日常写 SQL 最容易踩的坑。
+
+### 场景1：对索引列做运算或函数
+
+```sql
+SELECT * FROM student WHERE age + 1 = 19        -- ❌ 索引失效
+SELECT * FROM student WHERE age = 18             -- ✅ 正常
+
+SELECT * FROM student WHERE YEAR(create_time) = 2024    -- ❌ 索引失效
+SELECT * FROM student WHERE create_time >= '2024-01-01' -- ✅ 正常
+```
+
+**原因**：B+树存的是原始值，对列做了运算，B+树里找不到对应值，只能全表扫描。
+
+---
+
+### 场景2：隐式类型转换
+
+```sql
+-- phone 字段是 varchar 类型
+SELECT * FROM student WHERE phone = 13800000001   -- ❌ 索引失效（数字）
+SELECT * FROM student WHERE phone = '13800000001' -- ✅ 正常（字符串）
+```
+
+**原因**：类型不匹配，MySQL 对索引列做隐式转换，等于对索引列用了函数，索引失效。
+
+---
+
+### 场景3：LIKE 左模糊查询
+
+```sql
+SELECT * FROM student WHERE name LIKE '%明'   -- ❌ 索引失效
+SELECT * FROM student WHERE name LIKE '明%'   -- ✅ 正常
+SELECT * FROM student WHERE name LIKE '%明%'  -- ❌ 索引失效
+```
+
+**原因**：B+树按字节码排序，`'明%'` 前缀固定能定位起点，`'%明'` 前缀不固定无法定位。
+
+---
+
+### 场景4：联合索引违反最左前缀
+
+```sql
+-- 索引是 (age, name, city)
+WHERE age = 18                            -- ✅ 用到 age
+WHERE age = 18 AND name = 'student_1'    -- ✅ 用到 age + name
+WHERE name = 'student_1'                 -- ❌ 跳过了 age，失效
+WHERE age = 18 AND city = 'beijing'      -- ⚠️ 只用到 age，city 失效
+```
+
+`WHERE age = 18 AND city = 'beijing'` 的执行过程：
+```
+用 age 索引定位到所有 age=18 的数据（索引生效）
+在 age=18 的结果里逐条判断 city（全量扫描）
+因为 age=18 范围内 city 是无序的（中间隔了 name）
+```
+
+---
+
+### 场景5：OR 有一边没有索引
+
+```sql
+-- age 有索引，address 没有索引
+WHERE age = 18 OR address = '北京'   -- ❌ 索引失效
+WHERE age = 18 OR name = 'student_1' -- ✅ 两边都有索引才行
+```
+
+**原因**：OR 取并集，只要有一边没索引，整体必须全表扫描。
+
+---
+
+### 场景6：不等于、NOT IN
+
+```sql
+WHERE age != 18          -- ❌ 一般索引失效
+WHERE age NOT IN (18,20) -- ❌ 索引失效
+```
+
+**原因**：返回数据量太大，MySQL 判断走索引不如全表扫，主动放弃索引。
+
+---
+
+### 汇总
+
+| 场景 | 例子 | 结果 |
+|------|------|------|
+| 对索引列做运算 | `WHERE age + 1 = 19` | ❌ 失效 |
+| 对索引列用函数 | `WHERE YEAR(create_time) = 2024` | ❌ 失效 |
+| 隐式类型转换 | `WHERE phone = 13800000001`（varchar字段） | ❌ 失效 |
+| LIKE 左模糊 | `WHERE name LIKE '%明'` | ❌ 失效 |
+| 违反最左前缀 | `WHERE name = 'student_1'`（跳过age） | ❌ 失效 |
+| OR 有一边无索引 | `WHERE age = 18 OR address = '北京'` | ❌ 失效 |
+| 不等于 | `WHERE age != 18` | ❌ 一般失效 |
+
+---
+
+## 十一、EXPLAIN 执行计划
+
+验证 SQL 有没有走索引，用 EXPLAIN：
+
+```sql
+EXPLAIN SELECT * FROM student WHERE age = 18;
+```
+
+**关键字段：`type`**
+
+| type 值 | 含义 | 性能 |
+|---------|------|------|
+| ALL | 全表扫描，没走索引 | 最差 |
+| index | 扫了整个索引树 | 差 |
+| range | 走索引，范围扫描 | 一般 |
+| ref | 走索引，精确匹配 | 好 |
+| const | 主键或唯一索引精确匹配 | 最好 |
+
+**越往下越好，ALL 是最差的，const 是最好的。**
+
+---
+
+**想看实际执行时间，用 EXPLAIN ANALYZE：**
+
+```sql
+EXPLAIN ANALYZE SELECT * FROM student WHERE city = 'beijing';
+```
+
+结果解读：
+
+```
+actual time=0.188..21.8  rows=100000
+
+第一个数 0.188 → 获取第一行花了多少毫秒
+第二个数 21.8  → 获取所有行的总耗时（看这个）
+rows            → 实际扫描的行数
+```
+
+执行顺序从内到外，看最外层的总耗时。
+
+---
+
+## 十二、实测数据（千万级）
+
+本地 Docker MySQL 8.0，student 表，1000万条数据：
+
+```
+没索引（全表扫描）：
+  Table scan on student → 扫 1000万行 → 耗时 1720ms
+
+有索引（走索引）：
+  Index lookup using idx_name → 扫 1行 → 耗时 0.037ms
+
+差距：46000 倍
+```
+
+**结论：千万级数据没有索引，接口响应 1.7 秒，用户完全无法接受。有索引 0.037ms，用户感知不到。**
