@@ -514,6 +514,172 @@ synchronized 的 Monitor：           AQS（ReentrantLock 的底层）：
   _owner = 持有线程                   state = 锁状态（整数）
   _EntryList = 等待获取锁的线程       CLH队列 = 等待获取锁的线程
   _WaitSet = wait()后等待的线程       Condition队列 = await()后等待的线程
-  
+
   区别：Monitor 在 JVM/OS 层实现      AQS 纯 Java 实现，更灵活可控
 ```
+
+---
+
+## 高频面试题补充
+
+### Q5：synchronized 加在实例方法 vs 静态方法上，锁的对象分别是什么？
+
+- **实例方法** → 锁的是当前实例（`this`）
+- **静态方法** → 锁的是当前类的 Class 对象（`Counter.class`）
+
+**陷阱**：两把锁互不干扰，线程A 调静态方法，线程B 同时调实例方法，**不互斥**，可以同时进去。
+
+```java
+public class Counter {
+    public static synchronized void staticMethod() { ... }  // 锁 Counter.class
+    public synchronized void instanceMethod() { ... }       // 锁 this
+}
+// 两个线程分别调这两个方法，互不阻塞！
+```
+
+---
+
+### Q6：自旋 vs 阻塞，什么时候自旋反而更亏？
+
+自旋期间线程**仍占用 CPU**，阻塞则让出 CPU。
+
+判断标准是**持有锁的线程执行时间长短**，而非是否 CPU 密集：
+- 持有锁的线程执行时间**短** → 自旋一会儿就能拿到 → 划算
+- 持有锁的线程执行时间**长** → 自旋很久拿不到 → 白烧 CPU → 不如阻塞
+
+**自适应自旋**：JVM 根据上次自旋成功率动态调整自旋次数，上次成功就多转，上次失败就少转甚至直接阻塞。
+
+> 单核 CPU 上自旋几乎无意义——持有锁的线程根本没机会运行。
+
+---
+
+### Q7：公平锁 vs 非公平锁，性能差距从哪来？
+
+**非公平锁性能更好**，原因不只是"逻辑简单"，核心是**减少了线程唤醒的等待空档**：
+
+```
+公平锁：
+  线程A释放锁 → 唤醒队头线程B → 等B被调度起来 → B拿到锁
+  （中间有空窗期，CPU 闲着，吞吐量低）
+
+非公平锁：
+  线程A释放锁 → 线程C恰好来了，直接CAS抢到 → 立刻执行
+  （不用等唤醒，吞吐量高）
+```
+
+代价：队列里的线程可能被反复插队，极端情况**饥饿**（永远拿不到锁）。
+
+> `ReentrantLock` 默认非公平锁，需要公平性时才传 `new ReentrantLock(true)`。
+
+---
+
+### Q8：volatile 能保证 count++ 线程安全吗？
+
+**不能。**
+
+`volatile` 只保证**可见性**（一个线程修改后其他线程立刻可见），但 `count++` 是三步：
+
+```
+读 count → 加 1 → 写回
+```
+
+两个线程同时读到 `count=5`，各自加 1 写回 `6`，结果只加了一次。`volatile` 让写回立刻可见，但没阻止两个线程**同时读**。
+
+**修复方案：**
+
+```java
+// 方案1：AtomicInteger（推荐，无锁CAS，性能好）
+private AtomicInteger count = new AtomicInteger(0);
+count.incrementAndGet();
+
+// 方案2：高并发计数首选 LongAdder（分槽计数，吞吐量比 AtomicLong 更高）
+private LongAdder count = new LongAdder();
+count.increment();
+
+// 方案3：synchronized（简单场景）
+public synchronized void increment() { count++; }
+```
+
+---
+
+### Q9：读多写少的缓存，如何优化锁？
+
+**问题**：`synchronized` 对读也加锁，但读操作不修改数据，多个读线程本可以同时进。
+
+**方案：`ReadWriteLock`（读写锁）**
+
+```java
+ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
+
+public String get(String key) {
+    rwLock.readLock().lock();   // 读锁：多个线程可同时持有
+    try {
+        return cache.get(key);
+    } finally {
+        rwLock.readLock().unlock();
+    }
+}
+
+public void put(String key, String value) {
+    rwLock.writeLock().lock();  // 写锁：独占，写时不允许任何读/写
+    try {
+        cache.put(key, value);
+    } finally {
+        rwLock.writeLock().unlock();
+    }
+}
+```
+
+互斥规则：
+
+| | 读 | 写 |
+|--|----|----|
+| 读 | ✅ 不互斥 | ❌ 互斥 |
+| 写 | ❌ 互斥 | ❌ 互斥 |
+
+---
+
+### Q10：ReadWriteLock 底层如何实现读读不互斥？
+
+基于 AQS，对 `state`（32位 int）做拆分：
+
+```
+state 高16位 → 读锁计数（有几个线程持有读锁）
+state 低16位 → 写锁计数（写锁重入次数）
+
+读锁数 = state >>> 16
+写锁数 = state & 0xFFFF
+```
+
+**加读锁**：检查低16位是否为0（无写锁）→ CAS 把高16位 +1 → 多个线程可同时成功
+
+**加写锁**：检查整个 state 是否为0（无任何读写）→ CAS 把低16位置1 → 独占
+
+读读不互斥的本质：多个线程都能 CAS 成功把高16位 +1，互不影响。
+
+**写锁饥饿问题**：读请求不断时高16位永远不为0，写锁抢不到。`ReentrantReadWriteLock` 通过队列控制，有写锁在等待时后续读锁也要排队，避免写锁饿死。
+
+---
+
+### 🔧 手写自旋锁
+
+```java
+public class SpinLock {
+    // null 表示无人持有
+    private AtomicReference<Thread> owner = new AtomicReference<>();
+
+    public void lock() {
+        Thread current = Thread.currentThread();
+        // CAS 失败就一直转圈，直到成功
+        while (!owner.compareAndSet(null, current)) { }
+    }
+
+    public void unlock() {
+        owner.compareAndSet(Thread.currentThread(), null);
+    }
+}
+```
+
+核心就一行：`while (!CAS(null → 当前线程)) { 转圈 }`
+
+这和 JVM 轻量级锁自旋的本质相同，只是 JVM 操作的是 Mark Word，这里操作的是 Java 对象。

@@ -73,3 +73,10 @@ docker run -d \
   -v pgvector-data:/var/lib/postgresql/data \
   ankane/pgvector
 ```
+## 演示视频
+
+<video controls width="100%">
+  <source src="飞书20260415-002801.mp4" type="video/mp4">
+</video>
+
+
