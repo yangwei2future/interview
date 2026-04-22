@@ -280,6 +280,25 @@ SELECT * FROM users WHERE age=5 FOR UPDATE;
 范围查询              →  覆盖整个范围的 Next-Key Lock
 ```
 
+**触发条件详细说明：**
+
+```sql
+-- ✅ Record Lock：唯一索引（主键/唯一索引）等值查询，且记录存在
+SELECT * FROM users WHERE id=5 FOR UPDATE;                  -- 主键，id=5存在
+SELECT * FROM users WHERE phone='13800138000' FOR UPDATE;   -- 唯一索引，记录存在
+
+-- ✅ Gap Lock：唯一索引等值查询，记录不存在
+SELECT * FROM users WHERE id=4 FOR UPDATE;                  -- 主键，id=4不存在
+
+-- ✅ Next-Key Lock：普通索引查询，或范围查询
+SELECT * FROM users WHERE age=20 FOR UPDATE;                -- 普通索引
+SELECT * FROM users WHERE id > 3 AND id < 10 FOR UPDATE;   -- 范围查询
+```
+
+**核心规律：唯一性能精准定位到一行 → Record Lock / Gap Lock；定位不到精确一行 → Next-Key Lock。**
+
+普通索引之所以用 Next-Key Lock，是因为相同值可能有多行，无法精准定位，必须把前后间隙也锁住才能完全防幻读。
+
 ### 对比
 
 | | 锁记录本身 | 锁间隙 | 触发条件 |
