@@ -536,4 +536,62 @@ WHERE id=1 AND version=5;
 
 ---
 
-*（持续更新中...）*
+## 九、MDL 锁（元数据锁）
+
+### 背景：DDL 和 DML 并发会出什么问题？
+
+正常业务在读写数据（DML：SELECT/INSERT/UPDATE/DELETE），DBA 同时在改表结构（DDL：ALTER/CREATE/DROP）。没有保护的话结构对不上，数据错乱。
+
+MDL 锁保证：**改表结构时不能有人读写数据，有人读写数据时不能改表结构。**
+
+### MDL 锁是什么
+
+MySQL 5.5+ 引入，全称 Metadata Lock，保护表结构，全自动，不能手动操作。
+
+- **读 MDL 锁**：DML（增删改查）自动加，多个事务可以同时持有
+- **写 MDL 锁**：DDL（ALTER等）自动加，独占，其他一切操作全部阻塞
+
+### 经典生产事故：加字段把整张表搞瘫了
+
+```
+1. 事务A：BEGIN; SELECT * FROM orders;
+   → 拿到读 MDL 锁，事务未提交，锁一直持有
+
+2. DBA：ALTER TABLE orders ADD COLUMN remark VARCHAR(200);
+   → 申请写 MDL 锁，有读 MDL 锁，进入等待队列
+
+3. 事务C：SELECT * FROM orders;
+   → 申请读 MDL 锁，前面有写 MDL 锁在排队，也被阻塞！
+
+4. 后续所有请求全部阻塞，整张表不可用
+```
+
+**根本原因：** MDL 等待队列中写锁会阻塞后续所有读锁（防止写锁被读锁一直插队饿死）。
+
+**一个未提交的事务 + 一个 DDL = 整张表瘫痪。**
+
+### 正确的加字段姿势
+
+```sql
+-- 1. 先确认没有未提交的长事务
+SELECT * FROM information_schema.INNODB_TRX;
+
+-- 2. 设置超时，等不到就放弃，不阻塞业务
+SET lock_wait_timeout = 5;
+ALTER TABLE orders ADD COLUMN remark VARCHAR(200);
+
+-- 3. 大表用工具在线改，不锁表
+-- pt-online-schema-change 或 gh-ost
+```
+
+### 和行锁的区别
+
+| | 行锁 | MDL 锁 |
+|--|------|--------|
+| 保护对象 | 行数据 | 表结构 |
+| 手动操作 | 可以（FOR UPDATE） | 不能，全自动 |
+| 触发时机 | DML 操作行时 | 任何访问表时 |
+
+### 一句话总结
+
+MDL 锁是表结构的守护者。**生产最大的坑：未提交的长事务 + DDL = 整张表阻塞。** 加字段前先检查长事务，设置超时时间。
