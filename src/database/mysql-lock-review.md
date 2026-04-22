@@ -290,4 +290,108 @@ SELECT * FROM users WHERE age=5 FOR UPDATE;
 
 ---
 
+## 六、快照读 vs 当前读 + MVCC
+
+### 背景：读也要加锁吗？
+
+最朴素的做法是读加 S 锁、写加 X 锁，读写互斥。但读操作极其频繁，每次都等写锁释放，并发性能极差。
+
+**InnoDB 的解决方案：读不加锁，读历史版本。** 这就是 MVCC。
+
+---
+
+### MVCC 底层：两个隐藏字段 + undo log 版本链
+
+InnoDB 每行数据有两个关键隐藏字段：
+
+- `trx_id`：最后一次修改这行的事务ID
+- `roll_pointer`：指向 undo log 里上一个版本的指针
+
+每次修改一行，不是覆盖旧数据，而是把旧版本存入 undo log，新版本通过 roll_pointer 指向旧版本，形成版本链：
+
+```
+当前版本（trx_id=103）
+    ↓ roll_pointer
+旧版本（trx_id=100）
+    ↓ roll_pointer
+更旧版本（trx_id=95）
+```
+
+---
+
+### ReadView：决定你能看到哪个版本
+
+快照读时，InnoDB 生成一个 **ReadView**，包含四个关键信息：
+
+- `creator_trx_id`：创建这个 ReadView 的事务ID（自己）
+- `min_trx_id`：当前活跃事务列表里最小的事务ID
+- `max_trx_id`：下一个将要分配的事务ID（当前最大已分配ID + 1）
+- `m_ids`：当前所有活跃事务的ID列表（未提交的）
+
+**可见性判断**（拿版本链上每个版本的 trx_id 去比）：
+
+```
+版本 trx_id < min_trx_id
+→ 在我创建 ReadView 之前已提交 → 可见 ✅
+
+版本 trx_id >= max_trx_id
+→ 在我创建 ReadView 之后才开启 → 不可见 ❌
+
+版本 trx_id 在 m_ids 活跃列表里
+→ 还没提交 → 不可见 ❌
+
+版本 trx_id 不在 m_ids 里，且在 min 和 max 之间
+→ 在我之前已提交 → 可见 ✅
+```
+
+沿版本链从新到旧找，**第一个可见的版本**就是读到的数据。
+
+一句话：**已提交 且 在我创建 ReadView 之前提交的版本，才可见。**
+
+---
+
+### 快照读
+
+普通 `SELECT`，读 MVCC 版本链里的历史版本，**不加任何锁**，读写完全并发。
+
+```sql
+SELECT * FROM users WHERE id=1;  -- 快照读，不加锁
+```
+
+---
+
+### 当前读
+
+`SELECT...FOR UPDATE`、`UPDATE`、`DELETE`，读最新数据，需要加锁。加什么锁取决于查询条件（同行锁三种算法）：
+
+```sql
+SELECT * FROM users WHERE id=1 FOR UPDATE;   -- IX锁 + Record Lock
+SELECT * FROM users WHERE id=4 FOR UPDATE;   -- IX锁 + Gap Lock（id=4不存在）
+SELECT * FROM users WHERE age=5 FOR UPDATE;  -- IX锁 + Next-Key Lock（普通索引）
+```
+
+---
+
+### 两套防幻读机制
+
+```
+快照读  →  MVCC（读历史版本，天然看不到别人新插入的数据）
+当前读  →  间隙锁 Gap Lock / Next-Key Lock（物理上阻止别人插入新数据）
+```
+
+两套机制解决同一个问题，手段完全不同：
+- MVCC 是**读的时候绕开新数据**
+- 间隙锁是**直接把新数据挡在门外**
+
+### 总结
+
+| | 快照读 | 当前读 |
+|--|--------|--------|
+| 触发方式 | 普通 SELECT | FOR UPDATE / UPDATE / DELETE |
+| 读取版本 | MVCC 历史版本 | 最新数据 |
+| 是否加锁 | 不加锁 | 加锁（Record/Gap/Next-Key） |
+| 防幻读方式 | MVCC + ReadView | Gap Lock / Next-Key Lock |
+
+---
+
 *（持续更新中...）*
