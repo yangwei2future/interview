@@ -50,6 +50,7 @@ SELECT * FROM users WHERE name = '张三' FOR UPDATE;
 SELECT * FROM users WHERE id = 1 FOR UPDATE;
 ```
 
+
 ---
 
 ### 按模式分：S锁 vs X锁
