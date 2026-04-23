@@ -676,3 +676,130 @@ UPDATE products SET stock=stock-1 WHERE id=1 AND stock>0;
 | 纯数字增减 | Redis 原子操作，不需要锁 |
 
 **一句话：能用原子操作解决的不需要锁，需要保护多步操作的才需要锁。**
+
+---
+
+## 十一、分布式事务：转账场景
+
+### 锁、事务、分布式事务的本质区别
+
+```
+锁        →  解决并发问题，防止多个请求同时操作同一资源导致数据错误（超扣、重名）
+事务      →  解决原子性问题，保证多步操作要么全成功要么全失败（转了没收到）
+分布式事务 →  解决跨库/跨服务的原子性问题，本地事务管不了两个库
+```
+
+### 单机转账：数据库事务 + 固定加锁顺序
+
+```java
+@Transactional
+public void transfer(String fromId, String toId, BigDecimal amount) {
+    // 按 id 升序加锁，防死锁（A转B 和 B转A 都按同一顺序）
+    List<String> ids = Arrays.asList(fromId, toId);
+    Collections.sort(ids);
+
+    Account first  = accountMapper.selectForUpdate(ids.get(0));
+    Account second = accountMapper.selectForUpdate(ids.get(1));
+
+    Account from = first.getId().equals(fromId) ? first : second;
+    Account to   = first.getId().equals(fromId) ? second : first;
+
+    if (from.getBalance().compareTo(amount) < 0) {
+        throw new BusinessException("余额不足");
+    }
+    accountMapper.decrease(from.getId(), amount);
+    accountMapper.increase(to.getId(), amount);
+}
+```
+
+加锁防超扣，事务防"扣了没收到"，固定顺序防死锁。
+
+### 分布式转账：为什么本地事务失效？
+
+分库分表后，A和B可能在不同的库/服务上：
+
+```
+用户 id % 2 == 0  →  账户服务A（数据库1）
+用户 id % 2 == 1  →  账户服务B（数据库2）
+```
+
+同时操作两个库，本地事务只管自己的库，跨库无法保证原子性。
+
+### 方案一：TCC（强一致，适合金融）
+
+**本质：把跨库大事务拆成多个本地事务 + 协调者统一指挥。**
+
+每个服务只操作自己的库（本地事务），协调者通过 RPC 远程调用串联：
+
+```
+协调者（机器C）
+  ↓ RPC          ↓ RPC
+账户服务A        账户服务B
+  ↓ 本地事务       ↓ 本地事务
+数据库1          数据库2
+```
+
+三个阶段：
+
+```
+Try 阶段：
+  A服务：冻结100元（balance-100, frozen+100）← 本地事务
+  B服务：预增100元（frozen+100）            ← 本地事务
+
+Confirm 阶段（两边Try都成功）：
+  A服务：清除冻结（frozen-100）             ← 本地事务
+  B服务：冻结转余额（balance+100, frozen-100）← 本地事务
+
+Cancel 阶段（任意一步失败）：
+  A服务：解冻（balance+100, frozen-100）    ← 本地事务
+  B服务：取消预增（frozen-100）             ← 本地事务
+```
+
+**账户表需要加 frozen_amount 字段：**
+
+```sql
+UPDATE accounts SET balance=balance-100, frozen_amount=frozen_amount+100
+WHERE id='A' AND balance>=100;  -- Try：冻结
+```
+
+优点：强一致。缺点：业务侵入性强，要写三个方法，性能较差。
+
+### 方案二：本地消息表（最终一致，适合大多数业务）
+
+**本质：把"跨库两步操作"拆成"本地一步 + 异步补偿"，破坏非原子性条件。**
+
+```
+第一步（同一个库，本地事务，原子）：
+  A扣款 + 写消息表
+
+第二步（异步，可重试）：
+  定时任务扫描消息表 → 发MQ → B服务加款 → 标记消息完成
+```
+
+失败了无限重试，最终一定成功。代价是短暂不一致。
+
+### 如何选择
+
+```
+有资损风险，必须强一致    →  TCC（银行核心账务）
+允许短暂不一致，可以重试  →  本地消息表（大多数业务）
+```
+
+支付宝"实时到账"底层也是最终一致，只是延迟极短用户感知不到。
+
+### 什么时候需要分布式锁
+
+满足两个条件才需要：
+1. 多台机器部署（分布式环境）
+2. 操作共享资源，且不是原子操作
+
+```
+判断流程：
+并发会发生吗？→ 不会 → 不需要锁
+    ↓ 会
+单机还是多机？→ 单机 → JVM锁够了
+    ↓ 多机
+能用原子操作解决？→ 能 → Redis原子操作（如DECR）
+    ↓ 不能
+需要分布式锁
+```
