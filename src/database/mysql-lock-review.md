@@ -614,3 +614,65 @@ ALTER TABLE orders ADD COLUMN remark VARCHAR(200);
 ### 一句话总结
 
 MDL 锁是表结构的守护者。**生产最大的坑：未提交的长事务 + DDL = 整张表阻塞。** 加字段前先检查长事务，设置超时时间。
+
+---
+
+## 十、实战：秒杀防超卖方案
+
+### 问题背景
+
+库存100件，10000个请求同时进来。核心矛盾：
+- "查库存 → 判断 → 扣减"三步不是原子操作，并发下会超卖
+- 分布式多节点部署，JVM 锁失效
+- 性能不能太差，高并发下锁竞争会成为瓶颈
+
+### 标准分层方案
+
+```
+Sentinel 限流（闸门，每秒只放N个请求）
+  → Redis DECR 原子扣减（主力，挡99%流量）
+  → MQ 异步削峰（解耦，消费者慢慢写库）
+  → DB WHERE stock>0 兜底（防超卖最后一道）
+  → 支付超时回滚（还库存，别忘了！）
+```
+
+**第一层：Redis DECR 原子扣减**
+
+```java
+Long stock = redisTemplate.opsForValue().decrement("stock:product:1");
+if (stock < 0) {
+    redisTemplate.opsForValue().increment("stock:product:1"); // 还回去
+    return "库存不足";
+}
+messageQueue.send(new OrderMessage(userId, productId)); // 发MQ异步写库
+```
+
+**第二层：数据库兜底（不需要 FOR UPDATE）**
+
+```sql
+-- WHERE stock>0 天然防超卖，比 FOR UPDATE 性能更好
+UPDATE products SET stock=stock-1 WHERE id=1 AND stock>0;
+-- 影响行数=0 说明库存不足，回滚
+```
+
+**支付超时回滚（容易遗忘的细节）**
+
+```
+用户抢到 → 15分钟未付款 → 订单关闭
+→ Redis INCR +1，DB 库存 +1
+```
+
+### 为什么秒杀不用锁，而用 DECR
+
+锁解决的是"读-判断-写"三步不原子的问题。DECR 把这三步合并成一个原子操作，用 Redis 单线程串行执行替代了锁，效果一样但性能更好。
+
+**什么时候用锁，什么时候用原子操作：**
+
+| 场景 | 方案 |
+|------|------|
+| 先查再改，逻辑复杂 | 悲观锁 FOR UPDATE |
+| 冲突少，偶尔重试 | 乐观锁 version |
+| 分布式环境，多步操作 | Redis 分布式锁 |
+| 纯数字增减 | Redis 原子操作，不需要锁 |
+
+**一句话：能用原子操作解决的不需要锁，需要保护多步操作的才需要锁。**
