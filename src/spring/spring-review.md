@@ -264,11 +264,18 @@ public void placeOrder() {
 ### ⚠️ 事务不生效的四种情况
 
 ```
-1. 自调用：this.xxx() 绕过代理 → 用 self.xxx()
-2. 方法非public：AOP代理不到
-3. 异常被吞：catch后没抛出，Spring感知不到，不回滚
-4. 异常类型不对：默认只回滚RuntimeException
-   → 加 @Transactional(rollbackFor = Exception.class)
+1. 自调用：this.xxx() 绕过代理，走原始对象，事务逻辑没人处理
+   → 把方法拆到另一个Service，或注入 self 代理对象调用
+
+2. 方法非public：Spring AOP 只处理 public 方法
+   → 改成 public
+
+3. 异常被吞：catch后没有再往外抛，Spring感知不到异常，不回滚
+   → 要么不catch，要么catch后重新throw
+
+4. 异常类型不对：默认只回滚 RuntimeException 和 Error
+   → IOException / SQLException 等受检异常默认不回滚
+   → 加 @Transactional(rollbackFor = Exception.class) 覆盖所有类型
 ```
 
 ---
