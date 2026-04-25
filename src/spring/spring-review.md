@@ -280,4 +280,68 @@ public void placeOrder() {
 
 ---
 
+## 六、Spring Boot 自动装配
+
+### 背景
+
+传统 Spring 项目引入一个框架要手动写一堆配置，Spring Boot 目标是：**引入 starter 依赖，零配置直接用。**
+
+### @SpringBootApplication 是组合注解
+
+```
+@SpringBootApplication
+= @SpringBootConfiguration   // 标记配置类
++ @EnableAutoConfiguration   // 开启自动装配（核心）
++ @ComponentScan             // 扫描当前包及子包
+```
+
+### 自动装配流程
+
+```
+1. @EnableAutoConfiguration 触发
+   ↓
+2. 扫描所有 jar 包里的：
+   META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports
+   ↓
+3. 得到一批自动配置类（RedisAutoConfiguration、DataSourceAutoConfiguration...）
+   ↓
+4. 每个配置类有 @ConditionalOnXxx 条件注解，条件不满足直接跳过
+   ↓
+5. 条件满足的配置类执行，自动创建 Bean 放入容器
+```
+
+### 为什么需要 imports 文件
+
+`@ComponentScan` 只扫描**主类所在的包**，扫不到其他 jar 里的类。
+
+imports 文件是 jar 包主动告诉 Spring Boot："我这里有配置类，启动时记得加载我。"
+
+### @ConditionalOnXxx 的作用
+
+```java
+@ConditionalOnClass(RedisOperations.class)    // classpath 有 Redis 才生效
+@ConditionalOnMissingBean(RedisTemplate.class) // 你自己没配才生效，配了用你的
+public class RedisAutoConfiguration {
+    @Bean
+    public RedisTemplate redisTemplate(...) { ... }
+}
+```
+
+### 封装自己的 starter 三步走
+
+```
+1. FileUploadProperties.java
+   @ConfigurationProperties(prefix = "file-upload")
+   → 接收 application.yml 里的配置
+
+2. FileUploadAutoConfiguration.java
+   @AutoConfiguration + @EnableConfigurationProperties
+   → 读配置，创建 Bean
+
+3. META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports
+   → 写入 AutoConfiguration 全类名，让 Spring Boot 能发现它
+```
+
+---
+
 *（持续更新中...）*
