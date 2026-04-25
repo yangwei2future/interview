@@ -1006,4 +1006,72 @@ self.decreaseStock(); // ✅ 通过代理调用，AOP生效
 
 **Aware 的作用：** 让 Bean 感知 Spring 容器，最常用是 `ApplicationContextAware`，用于运行时动态获取 Bean（策略模式场景）。
 
-**BeanPostProcessor（了解）：** 在第3步和第4步之间，AOP 代理对象就是在这里生成的。
+**完整生命周期（含BeanPostProcessor）：**
+
+```
+1. 实例化（new）
+2. 属性填充（DI）          ← 循环依赖发生在这里
+3. Aware回调
+4. BeanPostProcessor前置
+5. @PostConstruct（初始化）
+6. BeanPostProcessor后置   ← AOP代理在这里生成！
+7. 放入一级缓存，对外服务
+8. @PreDestroy（销毁）
+```
+
+---
+
+## 四、循环依赖与三级缓存
+
+### 什么是循环依赖
+
+A依赖B，B又依赖A，Spring创建时互相等待，无法完成。
+
+### 三级缓存结构
+
+```
+一级缓存 singletonObjects      →  完整Bean（实例化+DI+初始化全部完成）
+二级缓存 earlySingletonObjects →  早期对象（已确定是否代理，但未完成初始化）
+三级缓存 singletonFactories    →  工厂Lambda（还不知道要不要AOP代理）
+```
+
+### 完整流程（A依赖B，B依赖A）
+
+```
+1. new A → 得到A原始对象 → 基于原始对象生成工厂Lambda → 工厂放三级缓存
+2. A做DI → 发现需要B
+3. new B → 得到B原始对象 → 基于原始对象生成工厂Lambda → 工厂放三级缓存
+4. B做DI → 发现需要A
+5. 调用A的工厂 → 判断A要不要AOP代理 → 返回早期A → 放二级缓存
+6. B拿到早期A，B完成DI → B走初始化（PostConstruct、BeanPostProcessor）→ B放一级缓存
+7. A拿到完整B，A完成DI → A走初始化 → A放一级缓存
+```
+
+**B先进一级缓存，A后进一级缓存。**
+
+### 为什么需要三级，二级不够？
+
+```
+如果直接放二级（存原始A）：
+  B拿到原始A（0x1234）
+  A后续生成代理A（0x5678）放一级缓存
+  → B持有原始A，容器里是代理A，引用不一致，AOP失效
+
+三级缓存（存工厂）：
+  B来取A时调工厂 → 工厂判断要不要代理
+  → 需要代理：基于原始A生成代理，放二级缓存，返回给B
+  → 不需要代理：返回原始A，放二级缓存，返回给B
+  → B和容器拿到的是同一个对象 ✅
+```
+
+**工厂的本质：延迟决策"给原始A还是代理A"，等B真正来取的时候再判断。**
+
+### 面试追问链路
+
+```
+循环依赖 → 三级缓存 → 为什么三级（AOP代理）→ AOP代理什么时候生成（BeanPostProcessor后置）
+```
+
+### 构造器注入为什么解决不了循环依赖
+
+构造器注入要求 new 和 DI 同一步完成，没有机会先 new 出原始对象放入三级缓存，无法提前暴露，Spring 直接报错。字段注入可以先 new 再 DI，所以能用三级缓存解决。
