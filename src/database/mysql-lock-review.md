@@ -852,3 +852,158 @@ WHERE id='A' AND balance>=100;  -- Try：冻结
     ↓ 不能
 需要分布式锁
 ```
+
+---
+
+# Spring 面试复习
+
+## 一、IOC 和 DI
+
+### IOC（控制反转）
+
+**背景：** 没有 IOC 时，对象依赖需要自己 new，改一处牵连所有用到它的地方。
+
+**IOC = 把对象的创建和管理权交给 Spring 容器，你只管用，不管创建。**
+
+```java
+// ❌ 没有IOC：自己new，耦合严重
+public class OrderController {
+    private OrderService orderService = new OrderService();
+}
+
+// ✅ 有IOC：声明需要什么，Spring自动注入
+@Service
+public class OrderController {
+    @Autowired
+    private OrderService orderService;
+}
+```
+
+Spring 容器本质是一个 Map：
+```
+Map<String, Object>：
+  "orderService" → OrderService实例
+  "userService"  → UserService实例
+```
+
+### DI 三种注入方式
+
+```java
+// 1. 字段注入（常用但不推荐）
+@Autowired
+private OrderService orderService;
+
+// 2. 构造器注入（推荐）
+public OrderController(OrderService orderService) {
+    this.orderService = orderService;
+}
+
+// 3. Setter注入（少用）
+@Autowired
+public void setOrderService(OrderService orderService) {
+    this.orderService = orderService;
+}
+```
+
+**为什么推荐构造器注入：**
+- 可以声明 final 字段，不可变更安全
+- 对象创建时依赖就必须传入，不会有不完整状态
+- 循环依赖时直接报错，问题暴露早
+
+**字段注入的坑：**
+```java
+@Service
+public class OrderService {
+    @Autowired
+    private StockService stockService;
+
+    public OrderService() {
+        stockService.doSomething(); // ❌ NPE！构造函数执行时依赖还没注入
+    }
+}
+```
+
+---
+
+## 二、AOP（面向切面编程）
+
+### 背景
+
+100个接口都需要打日志、权限校验、记录耗时，每个都写一遍重复代码，改一处要改100个地方。
+
+**AOP = 把通用逻辑抽出来，通过动态代理在方法执行前后插入，业务代码保持干净。**
+
+### 三要素
+
+```
+切面（Aspect）  →  装通用逻辑的类
+切点（Pointcut）→  在哪些方法上生效（execution表达式）
+通知（Advice）  →  在什么时机执行
+    @Before         方法执行前
+    @After          方法执行后（无论成功失败）
+    @AfterReturning 方法成功返回后
+    @AfterThrowing  方法抛异常后
+    @Around         前后都能控制（最强，包含上面所有）
+```
+
+### 底层原理：动态代理
+
+```
+你调用 orderService.placeOrder()
+  ↓ 实际是代理对象
+代理：执行切面前置逻辑（日志、权限）
+  ↓
+代理：调用真正的 placeOrder()
+  ↓
+代理：执行切面后置逻辑
+```
+
+```
+JDK动态代理  →  目标类有接口，代理接口
+CGLIB代理    →  目标类无接口，继承生成子类
+Spring Boot 2.x 以后默认全用 CGLIB
+```
+
+**Spring 事务底层就是 AOP，`@Transactional` 本质是切面。**
+
+### ⚠️ 经典坑：AOP 自调用失效
+
+```java
+@Service
+public class OrderService {
+    @Transactional
+    public void placeOrder() {
+        this.decreaseStock(); // ❌ this是原始对象，绕过代理，事务不生效
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void decreaseStock() { ... }
+}
+
+// 解决：注入自己的代理对象
+@Autowired
+private OrderService self;
+
+self.decreaseStock(); // ✅ 通过代理调用，AOP生效
+```
+
+---
+
+## 三、Bean 生命周期
+
+```
+1. 实例化    →  反射调用构造函数，new出对象，属性全是默认值
+2. 属性填充  →  依赖注入，@Autowired 的属性在这步赋值
+3. Aware回调 →  实现Aware接口的Bean，Spring把容器信息注入进来
+4. 初始化    →  @PostConstruct，依赖已全部注入，适合做缓存预热等操作
+5. 使用中    →  Bean放入容器，对外提供服务
+6. 销毁      →  @PreDestroy，释放资源、关闭连接
+```
+
+**为什么需要 @PostConstruct，构造函数里不行吗？**
+
+构造函数在第1步执行，属性填充在第2步，所以构造函数里依赖还是 null，用了会 NPE。@PostConstruct 在第4步执行，此时所有依赖已注入完毕，安全。
+
+**Aware 的作用：** 让 Bean 感知 Spring 容器，最常用是 `ApplicationContextAware`，用于运行时动态获取 Bean（策略模式场景）。
+
+**BeanPostProcessor（了解）：** 在第3步和第4步之间，AOP 代理对象就是在这里生成的。
