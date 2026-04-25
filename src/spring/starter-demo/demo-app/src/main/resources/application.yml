@@ -1,0 +1,8 @@
+server:
+  port: 8081
+
+# 对接方只需配置这几行，FileUploadClient 自动注入可用
+file-upload:
+  server-url: https://file-system.yangwei.com
+  env: prod
+  app-key: demo-app-key-123
