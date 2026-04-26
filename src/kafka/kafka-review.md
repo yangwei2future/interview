@@ -274,4 +274,69 @@ Consumer：poll() 一次拉一批             → 减少 poll 调用次数
 
 ---
 
+## 七、消息积压
+
+**本质：Producer 发送速度 >> Consumer 消费速度，消息在 Partition 里越堆越多。**
+
+### 如何发现：看 Lag
+
+```
+Lag = Partition 最新 offset - Consumer 当前消费到的 offset
+
+Lag 持续增大 → Consumer 跟不上，瓶颈在消费端
+Lag 基本不变 → 消费正常，可能是 Producer 突发流量
+```
+
+```bash
+kafka-consumer-groups.sh --bootstrap-server localhost:9092 \
+  --describe --group order-consumer-group
+# 输出 LAG 列，直接看每个 Partition 的积压量
+```
+
+生产上用 Prometheus + Grafana 监控，设阈值自动告警。
+
+### 处理步骤
+
+**第一步：Consumer 扩容（最直接）**
+```
+Partition 6个，Consumer 2个 → 扩到6个 Consumer，消费速度翻3倍
+注意：Consumer 数不能超过 Partition 数，多了也是空闲浪费
+```
+
+**第二步：排查消费慢的原因**
+```
+频繁 Rebalance → 调小 max.poll.records，减少每批消息数
+消费逻辑慢（RPC调用、查DB）→ 消费逻辑扔线程池异步处理
+机器资源不足 → 加机器
+```
+
+**第三步：紧急情况扩 Partition**
+```
+积压严重，扩 Consumer 也不够快
+→ 临时扩 Partition（比如6→12），同步扩 Consumer 到12个
+→ 注意：扩 Partition 会影响顺序消费，评估后再做
+```
+
+**第四步：限制 Producer（最后手段）**
+```
+Sentinel 限流，或业务侧把非核心消息延迟发送
+```
+
+### max.poll.records 和 Rebalance 的关系
+
+```
+每条消息处理耗时 2秒，max.poll.records=500
+→ 500条 × 2秒 = 1000秒 >> max.poll.interval.ms（300秒）
+→ Kafka 认为 Consumer 超时，踢出 Consumer Group
+→ Rebalance，这批消息重新分配
+→ 又超时，又 Rebalance → 死循环，消息几乎消费不了
+
+解决：max.poll.records 调小到 100
+→ 100条 × 2秒 = 200秒 < 300秒，不超时，正常消费
+```
+
+**判断依据：max.poll.records × 单条耗时 < max.poll.interval.ms**
+
+---
+
 *（持续更新中...）*
