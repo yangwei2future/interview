@@ -150,4 +150,68 @@ consumer.commitSync();   // 处理完再提交
 
 ---
 
+## 四、消费者组和 Rebalance
+
+### 消费者组的本质
+
+加大并发消费能力，一个 Consumer 消费太慢，多个 Consumer 分工消费不同 Partition。
+
+**关键规则：同一条消息在同一个 Consumer Group 内只被消费一次，但不同 Consumer Group 都能收到全量消息。**
+
+```
+order-topic 一条消息
+  → Consumer Group A（订单系统）某个 Consumer 消费
+  → Consumer Group B（日志系统）某个 Consumer 也消费
+  → 两组互相独立
+```
+
+### Rebalance 触发条件
+
+```
+1. Consumer 上线
+2. Consumer 下线（宕机 or 正常关闭）
+3. Partition 数量变化
+4. Consumer 超过 max.poll.interval.ms 没有 poll ← 最容易踩坑
+```
+
+### Rebalance 的代价
+
+Rebalance 期间整个 Consumer Group 停止消费（STW），重新分配完才恢复。
+
+### ⚠️ 最容易踩的坑：max.poll.interval.ms
+
+**poll() 是一批一批拉消息的，不是一条一条：**
+
+```java
+while (true) {
+    ConsumerRecords records = consumer.poll(Duration.ofMillis(1000)); // 拉一批
+    for (ConsumerRecord record : records) {
+        process(record);  // 你再一条条处理
+    }
+    consumer.commitSync(); // 这批处理完提交一次
+}
+```
+
+**坑：**
+
+```
+poll() 默认拉 500 条，每条处理 1 秒
+→ 500秒 >> max.poll.interval.ms 默认5分钟（300秒）
+→ Kafka 认为 Consumer 处理能力跟不上，踢出 Consumer Group
+→ Rebalance，这批消息重新分配给别人再消费一遍
+→ 又超时，又 Rebalance... 无限循环
+```
+
+**注意：心跳线程和消费线程是独立的，心跳正常不代表没问题，超时判断靠的是 max.poll.interval.ms。**
+
+**解决：**
+
+```
+max.poll.records=50        ← 每批少拉点（最直接）
+max.poll.interval.ms=600000 ← 调大超时（治标）
+或把耗时逻辑扔线程池异步处理，poll() 快速返回
+```
+
+---
+
 *（持续更新中...）*
