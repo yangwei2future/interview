@@ -214,4 +214,39 @@ max.poll.interval.ms=600000 ← 调大超时（治标）
 
 ---
 
+## 五、顺序消费
+
+**Kafka 只保证单个 Partition 内有序，跨 Partition 不保证。**
+
+### 解决方案：指定 Key，相同 Key 落同一个 Partition
+
+```java
+// 同一订单的所有消息用 orderId 作为 Key
+producer.send(new ProducerRecord("order-topic", orderId, "订单创建"));
+producer.send(new ProducerRecord("order-topic", orderId, "支付成功"));
+producer.send(new ProducerRecord("order-topic", orderId, "开始发货"));
+// orderId=1001 → hash → Partition 2，三条消息严格有序
+```
+
+同一个 Partition 只有一个 Consumer 消费，天然保证顺序。
+
+### 全局有序 vs 分区有序
+
+```
+分区有序：同一 Key 的消息有序，不同 Key 之间不保证，性能好（生产常用）
+全局有序：整个 Topic 只能1个Partition + 1个Consumer，彻底串行，性能极差（几乎不用）
+```
+
+### ⚠️ 坑：不要随便扩容 Partition
+
+```
+扩容前：orderId=1001 → hash % 3 → Partition 1
+扩容后：orderId=1001 → hash % 6 → Partition 4  ← 变了！
+→ 同一订单消息落到不同 Partition，顺序被打乱
+```
+
+**Partition 数量要提前规划好，上线后不要随意变更。**
+
+---
+
 *（持续更新中...）*
