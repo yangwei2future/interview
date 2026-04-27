@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "SimHei", sans-serif;
+    font-size: 10pt;
+    color: #222;
+    background: #fff;
+    padding: 28px 36px;
+    line-height: 1.55;
+  }
+
+  /* 姓名区 */
+  .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+  .header-left h1 { font-size: 22pt; font-weight: 700; color: #1a1a1a; letter-spacing: 4px; }
+  .header-left .target { font-size: 10pt; color: #555; margin-top: 4px; }
+  .header-left .target span { color: #c0392b; font-weight: 600; }
+  .contact-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 20px; font-size: 9.5pt; color: #444; margin-top: 10px; }
+
+  /* 分割线 */
+  .section-title {
+    font-size: 10.5pt; font-weight: 700; color: #fff;
+    background: #2c3e50;
+    padding: 3px 10px;
+    margin: 12px 0 8px 0;
+    letter-spacing: 1px;
+  }
+
+  /* 技术技能表格 */
+  .skill-table { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+  .skill-table td { padding: 2.5px 8px; vertical-align: top; }
+  .skill-table td:first-child { width: 80px; font-weight: 600; color: #2c3e50; white-space: nowrap; }
+  .skill-table tr:nth-child(even) td { background: #f5f7fa; }
+
+  /* 工作/项目条目 */
+  .item-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 3px; }
+  .item-title { font-weight: 700; font-size: 10.5pt; color: #1a1a1a; }
+  .item-sub { font-size: 9.5pt; color: #555; margin-bottom: 3px; }
+  .item-date { font-size: 9pt; color: #777; white-space: nowrap; }
+
+  .entry { margin-bottom: 10px; }
+  .entry p { margin-bottom: 2px; }
+
+  /* 列表 */
+  ul { padding-left: 16px; margin: 2px 0; }
+  ul li { margin-bottom: 2px; font-size: 9.5pt; }
+
+  .tag { display: inline-block; background: #eaf0fb; color: #2c3e50; border-radius: 2px; padding: 0 5px; font-size: 8.5pt; font-weight: 600; margin-right: 2px; }
+
+  .metric { color: #c0392b; font-weight: 700; }
+
+  .proj-desc { font-size: 9.5pt; color: #555; margin-bottom: 5px; line-height: 1.5; }
+
+  .subhead { font-weight: 700; color: #2c3e50; margin: 5px 0 2px 0; font-size: 9.5pt; }
+
+  .edu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 30px; }
+  .edu-item .school { font-weight: 700; font-size: 10pt; }
+  .edu-item .detail { font-size: 9pt; color: #555; }
+
+  .self-eval ul { padding-left: 16px; }
+  .self-eval ul li { margin-bottom: 4px; font-size: 9.5pt; }
+</style>
+</head>
+<body>
+
+<!-- 头部 -->
+<div class="header">
+  <div class="header-left">
+    <h1>杨&nbsp;&nbsp;卫</h1>
+    <div class="target">求职意向：<span>Java 后端开发工程师（大数据平台 / AI 应用方向）</span></div>
+    <div class="contact-grid">
+      <span>姓名：杨卫</span>
+      <span>年龄：27</span>
+      <span>电话：17695965214</span>
+      <span>邮箱：ywei_20@126.com</span>
+      <span>微信：yangw_0122</span>
+    </div>
+  </div>
+</div>
+
+<!-- 教育经历 -->
+<div class="section-title">教育经历</div>
+<div class="edu-grid">
+  <div class="edu-item">
+    <div class="item-header">
+      <span class="school">中国民航大学</span>
+      <span class="item-date">2020.09 — 2023.06</span>
+    </div>
+    <div class="detail">硕士 · 计算机技术 · 计算机科学与技术学院 · 天津</div>
+  </div>
+  <div class="edu-item">
+    <div class="item-header">
+      <span class="school">中国民航大学</span>
+      <span class="item-date">2016.09 — 2020.06</span>
+    </div>
+    <div class="detail">本科 · 计算机科学与技术 · 计算机科学与技术学院 · 天津</div>
+  </div>
+</div>
+
+<!-- 技术技能 -->
+<div class="section-title">技术技能</div>
+<table class="skill-table">
+  <tr><td>语言框架</td><td>Java（熟练）、Spring Boot、MyBatis、Spring MVC</td></tr>
+  <tr><td>数据库</td><td>MySQL（索引优化 / MVCC / 事务隔离）、Redis（分布式锁 / 缓存设计 / 限流）、OceanBase、MatrixDB、PostgreSQL</td></tr>
+  <tr><td>大数据</td><td>Hive、ClickHouse、Flink CDC、DataX</td></tr>
+  <tr><td>中间件</td><td>Kafka、Neo4j（知识图谱）、Elasticsearch</td></tr>
+  <tr><td>AI 应用</td><td>Agentic RAG、NL2SQL、MCP 协议、大模型工程落地（LLM Application）</td></tr>
+  <tr><td>并发 / JVM</td><td>线程池调优、JUC、JVM 内存模型 / GC 调优（G1）</td></tr>
+  <tr><td>工具平台</td><td>Docker、Git、XXL-Job、Apollo 动态配置</td></tr>
+</table>
+
+<!-- 工作经历 -->
+<div class="section-title">工作经历</div>
+<div class="entry">
+  <div class="item-header">
+    <span class="item-title">理想汽车 &nbsp;|&nbsp; 大数据开发工程师 &nbsp;|&nbsp; 企业智能-大数据平台</span>
+    <span class="item-date">2023.06 — 至今 &nbsp;|&nbsp; 北京</span>
+  </div>
+  <ul>
+    <li>主导<strong>数据服务平台、指标知识库</strong>从 0 到 1 建设，负责系统整体架构设计与核心功能开发；</li>
+    <li>负责数智平台后端开发，覆盖数据服务、数据消费、指标管理、知识图谱等多个业务域的架构迭代；</li>
+    <li>主导将 <strong>Agentic RAG + MCP</strong> 技术落地，实现自然语言转 SQL 能力上线，降低数据消费门槛；</li>
+    <li>负责数据服务平台、指标中心、达芬奇 BI、配置中心、告警中心等多个核心系统的持续迭代，跨前后端协同推进项目落地。</li>
+  </ul>
+</div>
+
+<!-- 项目经历 -->
+<div class="section-title">项目经历</div>
+
+<!-- 项目1 -->
+<div class="entry">
+  <div class="item-header">
+    <span class="item-title">数据服务平台（共享平台 + 开放平台）&nbsp;—&nbsp; 管理端 owner</span>
+    <span class="item-date">2025.03 — 至今</span>
+  </div>
+  <p class="proj-desc">面向理想汽车全业务的数据服务化能力平台，双平台协同构成，为智能驾驶、用户运营、商业分析等多场景提供 API 资产全生命周期管理（开发→授权→访问→监控→统计）。</p>
+
+  <div class="subhead">① 主导开放平台从 0 到 1 建设（6 期迭代）</div>
+  <ul>
+    <li>构建<strong>文档中心门户</strong>：提供 API/消息资产搜索、调试、版本对比、智能导入（MCP 工具）、权限申请等能力，支撑用户自助服务；</li>
+    <li>建设<strong>应用管理模块</strong>：区分发布应用（数据生产方）和订阅应用（数据消费方），支持应用授权管理、服务集群管理、接口管理、监控统计；</li>
+    <li>搭建<strong>运营分析大盘</strong>：多维度数据看板，实现 API 及消息资产全生命周期闭环管理。</li>
+  </ul>
+
+  <div class="subhead">② 共享平台重构与智能化建设</div>
+  <ul>
+    <li>支持 MySQL、OB、MatrixDB、PG 等 <span class="metric">6 种</span>主流数据库统一接入，覆盖结构化与非结构化数据共享场景；</li>
+    <li>完成 <strong>Agentic RAG + MCP</strong> 自然语言转 SQL 能力上线，业务人员可通过自然语言直接查询数据；</li>
+    <li>通过"一键发布"与开放平台联动，实现 API 从开发到运维的无缝衔接。</li>
+  </ul>
+
+  <div class="subhead">③ 核心数据指标</div>
+  <ul>
+    <li>平台接入应用数 <span class="metric">100+</span>，覆盖研发、产品、运营等多业务场景；</li>
+    <li>API 日均调用量 <span class="metric">百万级</span>；API 接入至发布完成 <span class="metric">5s 内</span>。</li>
+  </ul>
+</div>
+
+<!-- 项目2 -->
+<div class="entry">
+  <div class="item-header">
+    <span class="item-title">指标知识库 &nbsp;—&nbsp; 项目 owner</span>
+    <span class="item-date">2024.07 — 2025.03</span>
+  </div>
+  <p class="proj-desc">面向数据场景的指标知识图谱服务（基于 Neo4j），弥补指标平台与实际业务间的信息 Gap，提升 NL2SQL 准确率，支持产品、数仓、算法等多角色协同，实现从指标规划到应用的全流程闭环。</p>
+  <ul>
+    <li><strong>管理端 5 大核心模块</strong>：提供指标、维度、Schema 等知识资产线上统一管理与运维，支持数据同步、智能交互，实现知识资产数字化转型；</li>
+    <li><strong>OpenAPI 服务模块</strong>：提供 <span class="metric">20+</span> 核心接口，支持指标定位、智能推荐、知识检索、数据合成，为算法训练/推理提供标准化服务；</li>
+    <li><strong>Job 服务模块</strong>：实现知识库与指标平台数据自动同步与一致性保障，支持数据告警等后台任务；</li>
+    <li>知识库规模：指标 <span class="metric">757 个</span>、维度 <span class="metric">931 个</span>；OpenAPI 接口覆盖算法侧与数据合成侧全场景。</li>
+  </ul>
+</div>
+
+<!-- 自我评价 -->
+<div class="section-title">自我评价</div>
+<div class="self-eval">
+  <ul>
+    <li>具备完整的后端工程能力，熟悉从需求分析、技术方案设计到架构落地的全流程，有<strong>多个 0 到 1 项目及系统重构</strong>的实战经验；</li>
+    <li>深度投入 AI 大模型工程化落地，主导 <strong>Agentic RAG + NL2SQL + MCP</strong> 在企业级数据平台的实际落地，具备大模型应用工程化思维；</li>
+    <li>持续深耕 Java 并发（线程池/JUC）、JVM 调优、MySQL/Redis 底层原理，追求技术深度与业务价值的结合；</li>
+    <li>认真负责，具备良好的跨团队协作与抗压能力，热爱篮球。</li>
+  </ul>
+</div>
+
+</body>
+</html>
