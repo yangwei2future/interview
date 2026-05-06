@@ -363,9 +363,21 @@ Application ClassLoader（应用类加载器）
 - 防止核心类库被篡改（如自定义 `java.lang.String` 会被 Bootstrap 拦截）
 - 保证同一个类只被加载一次
 
+**四种类加载器：**
+
+| 加载器 | 加载什么 |
+|-------|---------|
+| Bootstrap | JDK 核心类（`java.lang.*`、`java.util.*`） |
+| Extension | JDK 扩展类（`javax.*`，`$JAVA_HOME/lib/ext`） |
+| Application | 业务代码 + classpath 下的第三方 jar（Spring、MyBatis 等） |
+| 自定义 | 特殊场景：Tomcat 类隔离、热部署等 |
+
+> **避免重复加载的机制**：每个类加载器内部有缓存，加载过的类直接返回，不重复加载。
+
 **打破双亲委派的场景：**
-- JDBC / SPI：启动类加载器加载接口，但实现类在应用层 → 用线程上下文类加载器反向委托
-- OSGi、Tomcat：每个模块用独立类加载器，类隔离
+- JDBC / SPI：Bootstrap 加载接口，但实现类在 classpath → 用线程上下文类加载器反向委托
+- Tomcat：每个 Web 应用独立类加载器，应用之间类隔离
+- 热部署：需要重复加载同一个类的新版本
 
 ---
 
@@ -414,35 +426,52 @@ Application ClassLoader（应用类加载器）
 
 ### 5.3 CPU 100% 排查步骤
 
+**常见原因：** 死循环、频繁 Full GC 导致 GC 线程一直在跑。
+
+**方式一：Arthas（推荐）**
 ```bash
-# 1. 找 Java 进程 PID
-jps -l
+java -jar arthas-boot.jar
 
-# 2. 找 CPU 最高的线程（十进制 TID）
-top -Hp <pid>
-
-# 3. 十进制转十六进制
-printf "%x\n" <tid>
-
-# 4. jstack 找到对应线程的堆栈
-jstack <pid> | grep -A 30 "<tid十六进制>"
+dashboard          # 看整体情况，找 CPU 高的线程
+thread -n 3        # 列出 CPU 最高的 3 个线程和堆栈，直接定位代码
+thread -b          # 直接找出死锁的线程
 ```
+
+**方式二：原始命令（没有 Arthas 时）**
+```bash
+jps -l                                          # 找 Java 进程 PID
+top -Hp <pid>                                   # 找 CPU 最高的线程 TID（十进制）
+printf "%x\n" <tid>                             # TID 转十六进制
+jstack <pid> | grep -A 30 "<tid十六进制>"        # 找到堆栈，定位代码
+```
+
+> 面试回答：先说 Arthas `thread -n`，再补一句"没有 Arthas 用 top -Hp + jstack 手动排查"。
 
 ---
 
 ### 5.4 内存泄漏排查步骤
 
+**本质：** 有引用一直指着对象，GC 可达性分析认为它还活着回收不掉，Old 区持续增长，最终 OOM。
+
+**排查流程：**
 ```
-1. 通过 jstat 观察 Old 区持续增长，Full GC 后回收效果越来越差
-2. jmap dump 堆快照
-3. MAT 打开 heap dump，查看"Leak Suspects"报告
-4. 定位持有引用的对象链路（谁持有了大量对象没释放）
+① Arthas memory / jstat 观察 Old 区持续增长，Full GC 后也降不下来
+② Arthas heapdump 导出堆快照（不停服）
+③ MAT 打开 heap dump，看 Leak Suspects 报告
+④ 找占用最大的对象，查引用链，定位到具体代码修复
 ```
 
-常见内存泄漏场景：
-- 静态集合无限增长（`static List<Object>`）
-- 未关闭的资源（Connection、Stream）
-- ThreadLocal 使用后未 remove（配合线程池会导致泄漏）
+**常见内存泄漏场景：**
+- 静态集合无限增长（`static List` 一直加，不清理）
+- 未关闭的资源（Connection、Stream 没有 close）
+- ThreadLocal 没有 remove（配合线程池，value 一直留在 ThreadLocalMap）
+- 缓存没有淘汰机制（往 Map 里放，从来不删）
+
+**生产预防：启动参数加上自动 dump**
+```bash
+-XX:+HeapDumpOnOutOfMemoryError
+-XX:HeapDumpPath=/var/log/heapdump.hprof
+```
 
 ---
 
