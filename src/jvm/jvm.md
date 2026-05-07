@@ -118,15 +118,21 @@ public void infinite() {
 
 ## 二、对象创建过程
 
-`new Object()` 背后 JVM 做了什么：
+`new User()` 背后 JVM 做了 5 步：
 
 ```
-1. 类加载检查   → 检查类是否已加载，没有则先加载
-2. 分配内存     → 堆中划出一块内存（指针碰撞 or 空闲列表）
-3. 初始化零值   → 将内存区域清零（int→0, ref→null）
-4. 设置对象头   → 记录类信息、哈希码、GC 年龄、锁状态
-5. 执行 <init> → 调用构造方法，字段赋值
+1. 类加载检查   → 检查 User 类是否已加载，没有则触发双亲委派加载到元空间
+2. 分配内存     → 在堆里划一块内存（指针碰撞 or 空闲列表）
+3. 初始化零值   → 清零（int→0, boolean→false, 引用→null）这就是字段默认值的来源
+4. 设置对象头   → 记录是哪个类的实例、GC 年龄、锁状态、哈希码
+5. 执行 <init> → 调用构造方法，给字段赋你指定的值
 ```
+
+> **注意**：类的元数据在元空间，对象实例在堆里，两个区域不要混淆。
+
+**分配内存两种方式：**
+- **指针碰撞**：内存连续，移动指针完成分配，速度极快（G1 使用）
+- **空闲列表**：内存有碎片，需要找合适空间（CMS 使用，因为标记-清除有碎片）
 
 **对象头（Object Header）结构：**
 
@@ -386,26 +392,29 @@ Application ClassLoader（应用类加载器）
 ### 5.1 常用 JVM 参数
 
 ```bash
-# 堆大小（-Xms 初始，-Xmx 最大，建议设成一样，避免动态扩缩容）
+# 堆大小（建议设成一样，避免动态扩缩容）
 -Xms4g -Xmx4g
 
-# 新生代大小（老年代 = 堆 - 新生代）
+# 新生代大小
 -Xmn2g
 
-# 元空间（方法区）
+# 元空间
 -XX:MetaspaceSize=256m -XX:MaxMetaspaceSize=512m
 
-# 选择 GC
+# GC 选择（JDK9+ 默认 G1，一般不用手动设）
 -XX:+UseG1GC
 -XX:MaxGCPauseMillis=200    # G1 目标停顿时间
 
 # GC 日志（生产必开）
--Xlog:gc*:file=/var/log/gc.log:time,level,tags:filecount=5,filesize=100m
+-Xlog:gc*:file=/var/log/gc.log
 
-# OOM 时生成 heap dump
+# OOM 时自动 dump（生产必加）
 -XX:+HeapDumpOnOutOfMemoryError
 -XX:HeapDumpPath=/var/log/heapdump.hprof
 ```
+
+> **为什么 Xms 和 Xmx 要设成一样？**
+> 不一样的话 JVM 会动态扩容：需要向 OS 申请内存（系统调用开销）、可能触发 Full GC、高峰期扩容性能更差。提前申请好，运行期间不再扩缩容。
 
 ---
 
