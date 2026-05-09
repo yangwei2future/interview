@@ -1,0 +1,51 @@
+Attaching to process ID 1, please wait...
+Debugger attached successfully.
+Server compiler detected.
+JVM version is 25.202-b08
+
+using parallel threads in the new generation.
+using thread-local object allocation.
+Concurrent Mark-Sweep GC
+
+Heap Configuration:
+   MinHeapFreeRatio         = 40
+   MaxHeapFreeRatio         = 70
+   MaxHeapSize              = 6442450944 (6144.0MB)
+   NewSize                  = 2147483648 (2048.0MB)
+   MaxNewSize               = 2147483648 (2048.0MB)
+   OldSize                  = 4294967296 (4096.0MB)
+   NewRatio                 = 2
+   SurvivorRatio            = 8
+   MetaspaceSize            = 268435456 (256.0MB)
+   CompressedClassSpaceSize = 67108864 (64.0MB)
+   MaxMetaspaceSize         = 268435456 (256.0MB)
+   G1HeapRegionSize         = 0 (0.0MB)
+
+Heap Usage:
+New Generation (Eden + 1 Survivor Space):
+   capacity = 1932787712 (1843.25MB)
+   used     = 163049344 (155.4959716796875MB)
+   free     = 1769738368 (1687.7540283203125MB)
+   8.435967539926082% used
+Eden Space:
+   capacity = 1718091776 (1638.5MB)
+   used     = 148441240 (141.5645980834961MB)
+   free     = 1569650536 (1496.935401916504MB)
+   8.639890026456888% used
+From Space:
+   capacity = 214695936 (204.75MB)
+   used     = 14608104 (13.931373596191406MB)
+   free     = 200087832 (190.8186264038086MB)
+   6.804089668469551% used
+To Space:
+   capacity = 214695936 (204.75MB)
+   used     = 0 (0.0MB)
+   free     = 214695936 (204.75MB)
+   0.0% used
+concurrent mark-sweep generation:
+   capacity = 4294967296 (4096.0MB)
+   used     = 212544336 (202.6980743408203MB)
+   free     = 4082422960 (3893.3019256591797MB)
+   4.948683455586433% used
+
+71059 interned Strings occupying 7851624 bytes.

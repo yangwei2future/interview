@@ -484,6 +484,55 @@ jstack <pid> | grep -A 30 "<tid十六进制>"        # 找到堆栈，定位代�
 
 ---
 
+### 5.5 OOM 八种类型及排查路径
+
+OOM（OutOfMemoryError）不止一种，不同报错对应不同根因：
+
+| # | OOM 类型 | 报错信息 | 常见原因 | 排查工具/方法 |
+|---|---------|---------|---------|--------------|
+| 1 | **堆内存溢出** | `java.lang.OutOfMemoryError: Java heap space` | 内存泄漏、堆设置过小、大对象过多 | `jmap -dump` + MAT 分析 |
+| 2 | **GC 开销超限** | `GC overhead limit exceeded` | GC 占用 98% 时间但回收不到 2% 空间 | `jstat -gc` 看 FGC 频率和回收效果 |
+| 3 | **元空间溢出** | `Metaspace` | 动态代理/反射生成大量类、类加载器泄漏 | `jstat -gc` 看 MU/MC |
+| 4 | **直接内存溢出** | `Direct buffer memory` | NIO ByteBuffer 未释放、Netty 堆外内存泄漏 | `pmap`/NMT |
+| 5 | **线程溢出** | `unable to create native Thread` | 线程泄漏、`-Xss` 设太大、ulimit 限制太低 | `jstack` 统计线程数、`/proc/pid/limits` |
+| 6 | **Map 失败** | `Map failed` | mmap 失败，堆外内存 + 线程栈耗尽虚拟内存 | 同直接内存 |
+| 7 | **数组超限** | `Requested array size exceeds VM limit` | 尝试分配超大数组（如 `new int[Integer.MAX_VALUE]`） | 检查业务逻辑中的数组分配 |
+| 8 | **本地方法失败** | `Out of swap space?` | 系统 swap 不足，Native 方法分配失败 | `free -m` 查看系统内存和 swap |
+
+**最常见的三种：**
+
+**① 堆内存溢出**
+```bash
+# 排查：jstat 观察 Old 区持续增长不降
+jstat -gcutil <pid> 1000
+# dump 后用 MAT 的 Leak Suspects 看谁占了最大空间
+jmap -dump:live,format=b,file=heap.hprof <pid>
+```
+
+**② 元空间溢出**
+```bash
+# 类太多导致，常见原因：
+# - CGLIB/动态代理疯狂生成类
+# - 类加载器泄漏（模块重复部署不卸载）
+jstat -gc <pid> | awk '{print $8}'  # MU 列，元空间使用量
+# 解决：-XX:MaxMetaspaceSize 设上限（防止无限制增长打爆容器）
+```
+
+**③ 线程溢出（云原生高频）**
+```bash
+# 快速确认
+jstack <pid> | grep "java.lang.Thread.State" | wc -l  # 总线程数
+cat /proc/<pid>/limits | grep "Max processes"          # 最大可创建线程数
+
+# 线程栈默认 1m，线程数多时对虚拟内存影响很大：
+# 10000 线程 × 1m = 10g 虚拟内存，容器通常只分 2-4g 容易打爆
+# 连接池多的场景建议减线程栈：-Xss512k
+```
+
+> **区别**：堆溢出是"堆里对象太多"，元空间溢出是"加载的类太多"，线程溢出是"线程太多把进程虚拟内存撑满了"（不是堆的问题，是操作系统层的限制）。
+
+---
+
 ## 六、面试高频问答
 
 ### Q1：JVM 内存结构有哪些区域，分别存什么？
