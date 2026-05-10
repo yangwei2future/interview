@@ -236,82 +236,186 @@ G1 打破固定分代边界，把堆切成大小相同的 **Region**（1~32MB）
 └────┴────┴────┴────┴────┴────┴────┘
 ```
 
-- Region 角色动态分配，不固定
-- Humongous Region：超过单个 Region 一半大小的对象，直接分配连续多个 Region 存放
-- 每个 Region 物理不连续，逻辑连续
+- Region 角色动态分配，不固定——今天你是 Eden，明天你可能变 Old
+- 每个 Region 物理不连续，逻辑连续（分配时用指针碰撞，Region 内部无碎片）
+- Region 大小：堆 4-8G 建议 4m，堆 > 8G 建议 8m 或 16m
+
+### 关键数据结构：RSet 和 Card Table
+
+G1 能独立回收单个 Region，依赖两个机制：
+
+**Card Table（512 字节一块的 card）：** 把堆划分为细粒度的 card。每次引用赋值 `a.field = b`，写屏障把赋值所在位置对应的 card 标记为"脏"。
+
+**Remembered Set（RSet）：** 每个 Region 维护一个 RSet，记录"别的 Region 有哪些脏 card 指向了我"。
+
+```
+         Region A                        Region B
+   ┌──────────────────┐           ┌──────────────┐
+   │  存活对象         │           │  obj ●─────────→ A 内部的对象
+   │  ┌──────────┐    │           └──────────────┘
+   │  │  RSet:    │    │                 │
+   │  │ B.card[3] │◄───┼─────────────────┘
+   │  │ C.card[7] │    │    写屏障发现"别的 Region 指向我"
+   │  └──────────┘    │    → 把 B.card[3] 记入 A 的 RSet
+   └──────────────────┘
+```
+
+回收 Region A 时，扫描 A 的 RSet → 找到外部指向 A 的引用 → 把这些外部引用当 GC Root 的一部分去遍历 → A 里被外部引用的对象不会被误杀。
+
+> **RSet 是 G1 最大的内存开销之一。** 每个 Region 都要维护 RSet，占用堆外存储。它的维护也有 CPU 开销——写屏障在每次引用赋值时都要检查是否跨 Region，是的话更新 RSet。G1 写屏障比 CMS 更重。
+
+---
 
 ### Young GC（新生代回收）
 
-Eden Region 满了触发，STW，多线程并行复制：
+Eden Region 满了触发，STW，多线程并行复制。
+
+**步骤：**
+
+```
+① 扫描 GC Roots（栈中局部变量、元空间 static/常量引用、JNI 引用）
+② 扫描 Eden Region 的 RSet（外部指向 Eden 的引用也当 GC Root）
+③ 存活对象复制到 Survivor Region 或 Old Region（达到晋升年龄的）
+④ 原 Eden Region 整体释放，标记为空闲 Region
+```
 
 ```
 回收前：                         回收后：
-E E E S S (满了)               [空] [空] S' O O
-                        复制存活 → 新 Survivor / 老年代
-                        直接清空原 Region
+E E E S S (Eden 满了)          [空] [空] [空] S' O O
+                       存活对象搬走，Eden 全清
+                       晋升的进 Old，年轻的进 Survivor
 ```
+
+> 注意：G1 的 Eden 和 Survivor Region 编号不固定，回收后这些 Region 被释放，下次可能分配成别的角色。
+
+---
 
 ### Mixed GC（混合回收，G1 独有）
 
-老年代占堆超过 **IHOP**（默认 45%）时触发。回收全部新生代 Region + **部分**老年代 Region（挑垃圾最多的）。
+老年代占堆超过 **IHOP**（InitiatingHeapOccupancyPercent，默认 45%）时触发。
+
+**核心思路：回收全部新生代 Region + 部分老年代 Region（挑垃圾最多的）。**
 
 ```
-垃圾最多的 Region 优先回收 → 所以叫 "Garbage First"
+垃圾占比 90% 的 Region → 先回收（性价比最高）
+垃圾占比 10% 的 Region → 先放一放（回收它不划算）
+所以叫 "Garbage First" —— 垃圾最多的优先
 ```
 
-> 为什么不全量回收老年代？控制 STW 时间——只回收性价比最高的那些 Region 就够了。
-
-**Mixed GC 四个阶段：**
+**四个阶段：**
 
 ```
-① 初始标记  → STW，和 Young GC 一起做（省一次 STW）
-② 并发标记  → 不 STW，遍历整个堆的对象图
-③ 最终标记  → STW，修正漏标（G1 用 SATB 算法）
-④ 筛选回收  → STW，按垃圾量排序，只回收最有价值的 Region
+① 初始标记（STW，极短）
+   和 Young GC 绑定在一个 STW 里做（省一次暂停）
+   只标记 GC Roots 直接关联的对象
+
+② 并发标记（不 STW，长）
+   - 从 GC Roots 出发遍历整个堆的对象图
+   - 用 SATB 算法防止漏标
+   - 同时统计每个老年代 Region 的垃圾占比
+
+③ 最终标记（STW，短）
+   - 处理 SATB 缓冲区里剩余的"删除引用"记录
+   - 修正并发标记期间的漏标
+
+④ 筛选回收（STW）
+   - 按垃圾占比排序，挑选最有价值的 Region 加入 CSet（Collection Set）
+   - CSet = 所有 Eden Region + 所有 Survivor Region + 部分老年代 Region
+   - 将 CSet 中存活对象复制到新 Region（用复制算法，无碎片）
+   - 原 Region 整体释放
 ```
 
-**SATB（Snapshot-At-The-Beginning）算法：**
+**第 ④ 步为什么必须 STW？** 移动对象后所有指向它的引用都要更新到新地址。G1 只有写屏障没有读屏障——没法在移动对象时拦截用户线程的读/写操作——所以必须让用户线程停住，搬完确认安全后再继续。
 
-CMS 用增量更新处理漏标，G1 用 SATB。核心思想：**在并发标记开始前给对象图拍快照**，并发标记期间删掉的对象按"存活"处理（变成浮动垃圾，下次收）。
+---
 
-```
-CMS 增量更新：关注"新增的引用" → 写屏障记录被修改的对象
-G1 SATB：    关注"删除的引用" → 写屏障记录被删除引用前的值
-```
+### SATB 算法（Snapshot-At-The-Beginning）
 
-### G1 可预测停顿的核心
-
-设置 `-XX:MaxGCPauseMillis=200`，G1 根据历史数据估算每个 Region 的回收耗时，按目标时间反算这次能回收多少 Region：
+**核心思想：并发标记开始前给对象图"拍快照"。标记期间删除的引用，按"还活着"处理（变成浮动垃圾，下次收）。**
 
 ```
-目标暂停 200ms → 每个 Region 平均回收 5ms → 这次最多回收 40 个 Region
+并发标记前快照：B.obj → C      （C 被标记为存活）
+并发标记中：    B.obj = null   （用户线程把引用删了）
+写屏障：       把 C 记入 SATB 队列（按快照处理，C 当存活）
+结论：         C 不会漏标，但本次收不掉（浮动垃圾）
 ```
 
-这是一个**软目标**，G1 尽力满足但不保证。
+> CMS 增量更新关注"新增引用"（谁新指向了谁），G1 SATB 关注"删除引用"（删除前原来指向谁）。SATB 相比增量更新会产生更多浮动垃圾（删除的引用要等下一次 GC 才回收），但实现比增量更新简单，正确性更容易保证。
 
-### Full GC 触发条件
+---
 
-G1 也有 Full GC（回退为 Serial 单线程全堆回收，STW 极长）：
+### 可预测停顿的核心
 
+设置 `-XX:MaxGCPauseMillis=200`，G1 根据历史数据估算每个 Region 回收耗时，按目标时间反算这次能回收多少 Region：
+
+```
+目标暂停 200ms → 每个 Region 回收约 5ms → 这次最多回收 40 个 Region
+```
+
+如果这次目标时间内只够处理 30% 的老年代垃圾，剩下的 70% 下次再收。这是一个**软目标**，G1 尽力满足但不保证。
+
+---
+
+### Humongous 对象
+
+超过单个 Region 一半大小的对象，不经过新生代，直接分配连续的多个 Region：
+
+```
+┌──────────┬──────────┬──────────┐
+│ Humongous│ Humongous│ Humongous│  一个大对象占据 3 个连续 Region
+│ Region 0 │ Region 1 │ Region 2 │
+└──────────┴──────────┴──────────┘
+```
+
+- Young GC 不管它（脏卡扫描还是扫，但不回收）
+- Mixed GC 和 Full GC 才会回收
+- **找不到连续 Region 时 → 直接触发 Full GC**（因为 G1 要求连续 Region，不能像 CMS 那样碎片也能分配）
+
+---
+
+### G1 的 Full GC
+
+G1 也有 Full GC，退化为 Serial Old **单线程标记-整理**整个堆，STW 极长：
+
+**触发条件：**
 - 晋升老年代的对象太多，Mixed GC 来不及回收
 - 大对象分配找不到连续 Humongous Region
 - 并发标记期间老年代被填满
 
-排查：`jstat` 看到 FGC 列在增长，说明 G1 扛不住了，需要调参数或加内存。
+排查：`jstat -gcutil` 看到 FGC 列持续增长，说明 G1 扛不住了，需要加内存或调参数。
 
-### 参数
+> 但 G1 的 Full GC 远比 CMS 的罕见——因为 G1 天然无碎片，Mixed GC 正常工作时不会让老年代碎掉。只有极端情况（分配速度远超回收速度、内存确实不够）才触发。
+
+---
+
+### 参数汇总
 
 ```bash
 -XX:+UseG1GC
--XX:MaxGCPauseMillis=200              # 目标停顿时间（软目标）
--XX:G1HeapRegionSize=4m               # Region 大小，堆 4-8G 建议 4m
--XX:InitiatingHeapOccupancyPercent=45 # 老年代占比达 45% 触发 Mixed GC
--XX:G1ReservePercent=10               # 预留 10% 给晋升的对象
--XX:G1NewSizePercent=5                # 年轻代最小占比
--XX:G1MaxNewSizePercent=60            # 年轻代最大占比
--XX:ParallelGCThreads=8               # GC 并行线程数
--XX:ConcGCThreads=2                   # 并发标记线程数（约并行线程的 1/4）
+-XX:MaxGCPauseMillis=200               # 目标停顿时间（软目标）
+-XX:G1HeapRegionSize=4m                # Region 大小，堆 4-8G 建议 4m
+-XX:InitiatingHeapOccupancyPercent=45  # 老年代占比达 45% 触发 Mixed GC
+-XX:G1ReservePercent=10                # 预留 10% 给晋升的对象（相当于安全垫）
+-XX:G1NewSizePercent=5                 # 年轻代最小占比
+-XX:G1MaxNewSizePercent=60             # 年轻代最大占比
+-XX:ParallelGCThreads=8                # GC 并行线程数
+-XX:ConcGCThreads=2                    # 并发标记线程数（约并行线程的 1/4）
 ```
+
+### CMS vs G1 总结
+
+| 对比项 | CMS | G1 |
+|--------|-----|-----|
+| 作用范围 | 仅老年代（新生代靠 ParNew） | 全堆 |
+| 内部结构 | 固定分代 | Region 动态分配 |
+| 算法 | 标记-清除 | 复制（Region 间搬移） |
+| 碎片 | 有，Serial Old 兜底 | 无 |
+| 漏标处理 | 增量更新（关注新增引用） | SATB（关注删除引用） |
+| 跨代引用 | Card Table | Card Table + RSet |
+| 停顿 | 不可预测 | 可设置目标停顿 |
+| 写屏障开销 | 较轻 | 较重（维护 RSet） |
+| Full GC | Concurrent Mode Failure → Serial Old | Mixed GC 来不及 → Serial Old |
+| 共存 | JDK 14 已移除 | JDK 9+ 默认 |
 
 ---
 
