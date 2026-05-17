@@ -375,15 +375,55 @@ STW 是 GC 发生时暂停所有用户线程的机制。GC 需要 STW 的核心�
 
 ### Q5：ThreadLocal 为什么会内存泄漏？怎么解决？
 
-**答：**
+#### 数据结构
 
-ThreadLocal 的 Entry 中 key（ThreadLocal 对象）是弱引用，value 是强引用。
+```
+Thread 对象
+  │
+  └─ threadLocals → ThreadLocalMap（定制版 Map，没实现 java.util.Map 接口）
+                      │
+                      ├─ table: Entry[]（数组 + 开放地址法解决哈希冲突）
+                      │
+                      └─ Entry extends WeakReference<ThreadLocal<?>>
+                           ├─ referent → ThreadLocal 对象（弱引用）  ← key
+                           └─ value    → 你存的数据（强引用）        ← value
+```
 
-当外部不再持有 ThreadLocal 对象时，key 被 GC 回收变为 null，但 value 仍然被线程的 ThreadLocalMap 强引用，无法回收。
+- `ThreadLocal` = 钥匙，`set()` 时作为 key 存入
+- `ThreadLocalMap` = 每个 Thread 身上挂的储物柜，存 `<ThreadLocal, V>` 对
+- `Entry` = 柜子里的格子，继承 `WeakReference<ThreadLocal>`，key 弱引用、value 强引用
 
-配合线程池使用时更危险：线程不会死，value 会一直留在 ThreadLocalMap 中，越积越多。
+#### 泄漏过程
 
-**解决方案：使用完后调用 `threadLocal.remove()`**，手动清除 Entry。
+```
+1. 方法里 new ThreadLocal + set(value)
+   → Entry = {key(弱)→ThreadLocal对象, value(强)→你的数据}
+
+2. 方法结束，栈帧弹出
+   → ThreadLocal 对象只剩 Entry 里的弱引用指着
+
+3. 下次 GC
+   → 弱引用不阻止回收 → key 被清掉 → key = null
+   → value 是强引用 → GC 不收 → value 卡在 Entry 里
+
+4. 线程池场景
+   → 线程不死 → ThreadLocalMap 一直在 → 脏 Entry 越积越多 → OOM
+```
+
+#### 核心原因
+
+Enry 继承 `WeakReference<ThreadLocal>`，`super(k)` 把 key 声明为弱引用，但 `this.value = v` 就是普通字段强引用。同一个 Entry 对象，两种对待方式——key 弱 value 强，GC 来了 key 没但 value 留下。
+
+#### 解决方案
+
+```java
+try {
+    context.set(value);
+    // 业务逻辑
+} finally {
+    context.remove();  // 线程池场景必须，清掉整个 Entry
+}
+```
 
 ---
 
