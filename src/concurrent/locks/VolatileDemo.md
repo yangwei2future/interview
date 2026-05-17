@@ -369,3 +369,43 @@ running = false;  // 立刻对所有工作线程可见
 ```
 
 类似场景：API 服务的流量开关、熔断标志、配置热更新标志（Apollo 推送后更新）。
+
+---
+
+## 九、volatile 典型使用场景总结
+
+volatile 的核心使用场景就一个：**多线程之间通过 volatile 变量来协同，一个线程写，其他线程立刻看到。**
+
+### 1. 状态标志位（最常见）
+
+多个线程通过 volatile 变量判断彼此的运行状态。
+
+```java
+// 优雅关闭
+volatile boolean running = true;
+
+// 工作线程
+while (running) { doWork(); }
+
+// 关闭钩子
+running = false;  // 所有工作线程立刻看到
+```
+
+### 2. DCL 单例（防指令重排）
+
+```java
+private static volatile Singleton instance;
+```
+
+### 3. 读多写少的简单计数（不要求精确原子性）
+
+```java
+volatile int requestCount = 0;
+requestCount++;  // 高频并发下可能丢计数，只适合"大概就行"的场景
+```
+
+> 需要精确计数用 `AtomicInteger`，不要用 volatile。
+
+### volatile 不做什么
+
+**不保证原子性。** `count++` 三步操作（读-加-写）volatile 拦不住并发覆盖。这个场景用 `synchronized` 或 `AtomicInteger`。
