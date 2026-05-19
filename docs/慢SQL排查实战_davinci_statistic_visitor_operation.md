@@ -1,4 +1,4 @@
-# 慢 SQL 排查实战：davinci_statistic_visitor_operation 表
+# 线上慢 SQL 排查实战
 
 ## 背景
 
