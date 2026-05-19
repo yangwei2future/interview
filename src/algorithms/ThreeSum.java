@@ -4,6 +4,21 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * 三数之和 — 排序 + 双指针 + 三层去重
+ *
+ * 核心思路：a + b + c = 0 → 固定 a，在右侧区间用双指针找 b + c = -a
+ *
+ * 排序是去重的前提：相同元素紧挨在一起，才能在循环中直接跳过
+ *
+ * 三层去重（几层循环，就做几层去重）：
+ *   - i 层：nums[i] == nums[i-1] → 跳过，保留第一个出现的固定值
+ *   - left 层：找到解后 left++，while 跳过所有相同值
+ *   - right 层：找到解后 right--，while 跳过所有相同值
+ *
+ * 时间复杂度 O(n^2)：排序 O(n log n) + 外层 O(n) × 内层双指针 O(n)
+ * 空间复杂度 O(1)：不计返回结果
+ */
 public class ThreeSum {
 
     public static void main(String[] args) {
