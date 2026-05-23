@@ -33,7 +33,7 @@ import java.util.Properties;
  */
 public class RebalanceConsumerDemo {
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         System.out.println("===== Rebalance Consumer：慢消费触发超时 =====\n");
 
         Properties props = KafkaConfig.consumerProps("rebalance-demo-group");
@@ -47,6 +47,9 @@ public class RebalanceConsumerDemo {
 
         try {
             int batchNo = 0;
+            int rebalanceCount = 0;
+            long lastOffset = 0;
+
             while (batchNo < 10) {
                 ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(1000));
                 if (records.isEmpty()) {
@@ -63,22 +66,29 @@ public class RebalanceConsumerDemo {
                         " 秒，max.poll.interval.ms=30秒，必然超时！");
 
                 for (ConsumerRecord<String, String> r : records) {
+                    // 检测 offset 回退：同一批消息被重新消费
+                    if (lastOffset > 0 && r.offset() == lastOffset) {
+                        rebalanceCount++;
+                        System.out.printf("  [回退!] partition=%d offset=%d ← 被踢后重新消费，第 %d 次 Rebalance%n",
+                                r.partition(), r.offset(), rebalanceCount);
+                    }
+                    lastOffset = r.offset();
                     System.out.printf("  [处理] partition=%d offset=%d key=%s%n",
                             r.partition(), r.offset(), r.key());
                     Thread.sleep(2000);
                 }
 
-                // 注意：超时发生在 poll() 之间，不是 commitSync() 之间
-                // 这批处理了 60 秒，等下一次 poll() 时会被踢
-                consumer.commitSync();
-                System.out.printf("  => 处理耗时 %d 秒%n",
-                        (System.currentTimeMillis() - startMs) / 1000);
+                // 处理完这批 60 秒后，已经被踢出 Group，commit 会失败
+                try {
+                    consumer.commitSync();
+                    System.out.printf("  => 提交成功，耗时 %d 秒%n",
+                            (System.currentTimeMillis() - startMs) / 1000);
+                } catch (Exception commitEx) {
+                    System.out.printf("  [Rebalance!] commit 失败（已超时被踢出）: %s%n",
+                            commitEx.getMessage().split("\n")[0]);
+                    System.out.println("  => 下次 poll() 会重新 join Group，从上次 offset 重新消费");
+                }
             }
-        } catch (Exception e) {
-            System.err.println("异常: " + e.getMessage());
-            // org.apache.kafka.common.errors.OffsetCommitTimeoutException 或
-            // CommitFailedException: Commit cannot be completed since
-            // the group has already rebalanced
         } finally {
             consumer.close();
         }
