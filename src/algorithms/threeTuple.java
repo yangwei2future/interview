@@ -1,34 +1,33 @@
 package algorithms;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 
 public class threeTuple {
 
-    public List<List<Integer>> threeSum(int[] nums) {
+    public static void main(String[] args) {
+        ArrayList<Integer> list = new ArrayList<>(Arrays.asList(1,2,3,4,5,6,7));
+        Integer target = 6;
+
+        List<List<Integer>> three = three(list, target);
+        System.out.println(three);
+
+    }
+
+    static List<List<Integer>> three(List<Integer> list, Integer target){
         ArrayList<List<Integer>> res = new ArrayList<>();
-        Arrays.sort(nums);
-        for (int i = 0; i < nums.length-2; i++) {
-            if (i>0 && nums[i] == nums[i - 1]){continue;}
-            int left = i+1;
-            int right = nums.length -1;
-            while (left < right){
-                int sum = nums[i] + nums[left] + nums[right];
-                if(sum == 0){
-                    res.add(Arrays.asList(nums[i],nums[left],nums[right]));
-                    left++;
-                    right--;
-                    while (left < right && nums[left] == nums[left-1]){left++;};
-                    while (left < right && nums[right] == nums[right+1]){right--;};
-                }else if (sum > 0){
-                    right--;
-                }else {
-                    left++;
-                }
+        HashMap<Integer, Integer> map = new HashMap<>();
+        for (Integer i : list) {
+            map.put(i, 0);
+        }
+        for (Integer i : list) {
+            Integer adds = map.get(target - i);
+            if (Objects.equals(adds, 0) && i != target-i) {
+                ArrayList<Integer> tas = new ArrayList<>(Arrays.asList(i, target - i, target));
+                map.put(i, 1);
+                map.put(target - i, 1);
+                res.add(tas);
             }
         }
         return res;
     }
-
 }

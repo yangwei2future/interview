@@ -311,19 +311,56 @@ public void placeOrder() {
 + @ComponentScan             // 扫描当前包及子包
 ```
 
+### 本质：条件配置机制
+
+自动装配的核心思想就一句话：**你配的优先，你不配的我自动给你创建默认 Bean。**
+
+```
+引入 starter → classpath 有对应类 → 条件满足 → 自动创建 Bean → 直接 @Autowired 就能用
+```
+
 ### 自动装配流程
 
 ```
-1. @EnableAutoConfiguration 触发
-   ↓
-2. 扫描所有 jar 包里的：
-   META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports
-   ↓
-3. 得到一批自动配置类（RedisAutoConfiguration、DataSourceAutoConfiguration...）
-   ↓
-4. 每个配置类有 @ConditionalOnXxx 条件注解，条件不满足直接跳过
-   ↓
-5. 条件满足的配置类执行，自动创建 Bean 放入容器
+@SpringBootApplication
+  └── @EnableAutoConfiguration                  ← 开启自动装配的总开关
+        └── @Import(AutoConfigurationImportSelector.class)
+              └── 读取所有 jar 包的 META-INF/spring/
+                    org.springframework.boot.autoconfigure.AutoConfiguration.imports
+              └── 得到所有自动配置类全类名
+              └── 条件过滤（@ConditionalOnXxx）
+              └── 条件满足 → 执行配置类，创建 Bean 放入容器
+```
+
+### 以 Redis 为例走一遍完整过程
+
+```java
+// 1. 引入 starter（spring-boot-starter-data-redis）
+//    → 依赖传递带来自动配置类 RedisAutoConfiguration
+
+// 2. RedisAutoConfiguration 长这样：
+@AutoConfiguration
+@ConditionalOnClass(RedisOperations.class)        // classpath 有 Redis 类才生效
+@ConditionalOnMissingBean(RedisTemplate.class)    // 用户没自定义才自动配
+@EnableConfigurationProperties(RedisProperties.class)  // 读 spring.redis.* 配置
+public class RedisAutoConfiguration {
+
+    @Bean
+    @ConditionalOnMissingBean
+    public RedisTemplate<Object, Object> redisTemplate(RedisConnectionFactory factory) {
+        RedisTemplate<Object, Object> template = new RedisTemplate<>();
+        template.setConnectionFactory(factory);
+        return template;
+    }
+}
+
+// 3. 你只需要：
+spring.redis.host=localhost      // application.yml 写配置
+spring.redis.port=6379
+
+// 4. 然后直接注入使用
+@Autowired
+private RedisTemplate redisTemplate;  // 直接用，不用手写任何 Bean 定义
 ```
 
 ### 为什么需要 imports 文件
@@ -332,16 +369,24 @@ public void placeOrder() {
 
 imports 文件是 jar 包主动告诉 Spring Boot："我这里有配置类，启动时记得加载我。"
 
+底层用到的就是 Spring 的 `@Import` + `ImportSelector`：在 Spring 容器 refresh 之前就把所有自动配置类加载进来，后续和普通 `@Bean` 一样走 Bean 生命周期。
+
 ### @ConditionalOnXxx 的作用
 
-```java
-@ConditionalOnClass(RedisOperations.class)    // classpath 有 Redis 才生效
-@ConditionalOnMissingBean(RedisTemplate.class) // 你自己没配才生效，配了用你的
-public class RedisAutoConfiguration {
-    @Bean
-    public RedisTemplate redisTemplate(...) { ... }
-}
-```
+| 注解 | 含义 |
+|------|------|
+| `@ConditionalOnClass` | classpath 有指定类才生效 |
+| `@ConditionalOnMissingClass` | classpath 没有指定类才生效 |
+| `@ConditionalOnBean` | 容器里已有指定 Bean 才生效 |
+| `@ConditionalOnMissingBean` | 容器里没找到指定 Bean 才生效（最重要） |
+| `@ConditionalOnProperty` | 配置文件有指定属性才生效 |
+| `@ConditionalOnWebApplication` | 是 Web 应用才生效 |
+
+**`@ConditionalOnMissingBean` 是最关键的：用户自己配置了就跳过，不覆盖；没配置才自动创建默认的。**
+
+### 总结
+
+> Spring Boot 自动装配 = 根据 classpath 里的类 + 配置文件属性 + 容器里已有的 Bean，**条件判断后自动创建默认 Bean**。你只需要引入 starter、写配置、注入就能用，不用手写 Bean 定义。
 
 ### 封装自己的 starter 三步走
 

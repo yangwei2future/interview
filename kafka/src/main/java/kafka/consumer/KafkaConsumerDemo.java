@@ -25,7 +25,7 @@ public class KafkaConsumerDemo {
 
         try {
             int batchNo = 0;
-            while (batchNo < 5) { // 拉 5 批后退出
+            while (batchNo < 100) { // 拉 5 批后退出
                 ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(2000));
                 if (records.isEmpty()) {
                     System.out.println("  没有新消息，继续等...");
@@ -39,7 +39,7 @@ public class KafkaConsumerDemo {
                             r.partition(), r.offset(), r.key(), r.value());
 
                     // 模拟处理耗时（每条 100ms）
-                    Thread.sleep(100);
+                    Thread.sleep(1000);
                 }
 
                 // 处理完这批才提交（手动提交，防丢消息）

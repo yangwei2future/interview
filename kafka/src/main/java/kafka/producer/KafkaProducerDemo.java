@@ -16,7 +16,7 @@ public class KafkaProducerDemo {
     public static void main(String[] args) throws Exception {
         System.out.println("===== Kafka Producer Demo =====\n");
         KafkaProducerDemo demo = new KafkaProducerDemo();
-        demo.test01();
+        demo.test03();
         System.out.println("\n===== Producer Demo 结束 =====");
     }
 

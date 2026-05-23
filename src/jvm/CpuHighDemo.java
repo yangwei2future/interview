@@ -24,14 +24,14 @@ public class CpuHighDemo {
     public static void main(String[] args) throws InterruptedException {
         System.out.println("进程启动，PID: " + ProcessHandle.current().pid());
         System.out.println("选择场景：");
-        System.out.println("  1. 死循环（会导致 CPU 100%）");
+//        System.out.println("  1. 死循环（会导致 CPU 100%）");
         System.out.println("  2. 死锁（线程卡死，CPU 不高）");
         System.out.println("默认 3 秒后启动死循环场景...");
 
         Thread.sleep(3000);
 
         // 场景一：启动一个死循环线程
-        startInfiniteLoop();
+//        startInfiniteLoop();
 
         // 场景二：启动死锁
         startDeadLock();
