@@ -47,7 +47,7 @@ docker exec kafka1 /opt/kafka/bin/kafka-topics.sh \
 | 2 | `KafkaConsumerDemo` | 体验手动提交、poll 批量拉取 |
 | 3 | `KafkaConsumerGroupDemo` | 开 3 个终端，看 Partition 分配和 Rebalance |
 | 4 | `KafkaExactlyOnceDemo` | 幂等消费，用 partition+offset 去重 |
-| 5 | `KafkaRebalanceDemo` | 模拟慢消费触发 Rebalance |
+| 5 | `RebalanceConsumerDemo` | 模拟慢消费触发 Rebalance |
 
 运行命令（在 kafka/ 目录下执行）：
 
@@ -318,4 +318,5 @@ max.poll.interval.ms=300000        # 超时 5 分钟
 | `consumer/KafkaConsumerDemo.java` | 手动提交、poll 批量拉取 |
 | `consumer/KafkaConsumerGroupDemo.java` | Consumer Group 分区分配演示 |
 | `consumer/KafkaExactlyOnceDemo.java` | 幂等消费（partition+offset 去重） |
-| `consumer/KafkaRebalanceDemo.java` | 慢消费触 Rebalance 观察 |
+| `producer/RebalanceProducerDemo.java` | Rebalance 演示 - 生产 200 条消息 |
+| `consumer/RebalanceConsumerDemo.java` | Rebalance 演示 - 慢消费触发超时 |
