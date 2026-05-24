@@ -32,6 +32,25 @@
 
 **每引入一个技术栈，都要手动写一大堆样板 Bean 定义。** 十个项目要配十遍，每次配置还不一样——版本升级、配置项变化，都是心智负担。
 
+### 自动装配把"写 XML 配 Bean"这一步吞掉了
+
+```
+以前：加 Maven 依赖 → 写 XML 配 Bean → 配 PropertyPlaceholder → 调试 → 能用
+现在：加 Maven 依赖 → 配 yml → 直接用
+```
+
+用 MyBatis 举例，对比一清二楚：
+
+| 步骤 | 以前（Spring + XML） | 现在（Spring Boot） |
+|------|---------------------|-------------------|
+| 1. 引入依赖 | `pom.xml` 加 `mybatis-spring` | `pom.xml` 加 `mybatis-spring-boot-starter` |
+| 2. 配 Bean | 手写 3 个 Bean（DataSource、SqlSessionFactory、MapperScanner） | **不需要，自动装配帮你建好了** |
+| 3. 配属性 | `jdbc.properties` + `PropertyPlaceholder` | `application.yml` 写几行 |
+| 4. 调试 | Bean 间依赖关系配错，启动报错排查半天 | 内部已经串好了，基本不出错 |
+| 5. 使用 | `@Autowired` 注入 | `@Autowired` 注入（一样） |
+
+**被吞掉的那一步刚好就是自动装配做的事：** jar 包里的 `xxx.AutoConfiguration.imports` 文件告诉 Spring"这个 jar 里有这些配置类"，Spring 启动时自动加载，条件满足就帮你把 Bean 建好放进容器。
+
 ### 自动装配要解决的核心问题
 
 ```
