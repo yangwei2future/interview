@@ -65,7 +65,92 @@
 | 配置项记不住 | `@ConfigurationProperties` 绑定 yml，IDE 自动补全 |
 | 不小心覆盖 | `@ConditionalOnMissingBean`，用户自己配了就不自动创建 |
 
-**一句话白话：** 自动装配就是把"引入 jar 包 → 手动写 XML/注解配 Bean → 调试配置"这条链路，压缩成"引入 jar 包 → 自动生效"。
+**"配置项记不住"是怎么解决的——yml → Bean 完整链路：**
+
+以 DeepSeek Starter 为例，你只需要在 yml 里写：
+
+```yaml
+deepseek:
+  api-key: sk-xxxx
+  model: deepseek-chat
+```
+
+就能注入一个配置好的 `DeepSeekClient`。这条链路是怎么走通的？
+
+```
+application.yml         ①  @ConfigurationProperties  ②  AutoConfiguration  ③     @Bean
+   deepseek:       →       DeepSeekProperties          @Bean方法参数注入        new DeepSeekClient(properties)
+     api-key: sk-xxx     getApiKey() = "sk-xxxx"    →  拿到 apiKey       →      放进客户端
+```
+
+拆开每一步：
+
+**① yml → Properties 对象（@ConfigurationProperties）**
+
+```java
+@ConfigurationProperties(prefix = "deepseek")
+public class DeepSeekProperties {
+    private String apiKey;          // 对应 deepseek.api-key
+    private String model = "deepseek-chat";  // 有默认值
+}
+```
+
+Spring Boot 启动时会调用 `ConfigurationPropertiesBindingPostProcessor`，把 yml 里的值按字段名映射到 `DeepSeekProperties` 对象上。`api-key`（kebab-case）自动映射到 `apiKey`（camelCase）。
+
+**② Properties → AutoConfiguration（@EnableConfigurationProperties）**
+
+```java
+@AutoConfiguration
+@EnableConfigurationProperties(DeepSeekProperties.class)  // 注册 Properties 为 Bean
+public class DeepSeekAutoConfiguration {
+    
+    @Bean
+    DeepSeekClient deepSeekClient(DeepSeekProperties properties) {
+        // properties.getApiKey() 已经拿到 yml 里的值了
+        return new DeepSeekClient(properties);
+    }
+}
+```
+
+`@EnableConfigurationProperties` 做了两件事：把 `DeepSeekProperties` 注册为 Bean，然后它可以被注入到 `@Bean` 方法参数里。
+
+**③ Properties → Bean 构造参数**
+
+```java
+public class DeepSeekClient {
+    public DeepSeekClient(DeepSeekProperties properties) {
+        this.apiKey = properties.getApiKey();     // → "sk-xxxx"
+        this.baseUrl = properties.getBaseUrl();    // → "https://api.deepseek.com"
+        this.model = properties.getModel();        // → "deepseek-chat"
+    }
+}
+```
+
+**④ IDE 自动补全怎么来的**
+
+`spring-boot-configuration-processor` 编译时扫描 `@ConfigurationProperties` 类，生成 `spring-configuration-metadata.json`：
+
+```json
+{
+  "properties": [
+    {
+      "name": "deepseek.api-key",
+      "type": "java.lang.String",
+      "description": "API Key（必填）"
+    },
+    {
+      "name": "deepseek.model",
+      "type": "java.lang.String",
+      "description": "模型名称",
+      "defaultValue": "deepseek-chat"
+    }
+  ]
+}
+```
+
+IDEA 读到这个 JSON，你敲 `deepseek.` 时就弹出可选的属性名、类型和描述——不用再翻文档记配置项了。
+
+**一句话白话：** 自动装配不止是"帮你创建 Bean"，还包括"帮你把 yml 里的值自动绑到 Bean 上"。`@ConfigurationProperties` 是 yml 和 Bean 之间的那座桥。
 
 ---
 
