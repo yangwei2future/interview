@@ -1,0 +1,5 @@
+deepseek:
+  api-key: sk-你的key填这里
+  model: deepseek-chat
+  max-tokens: 2048
+  temperature: 0.7
