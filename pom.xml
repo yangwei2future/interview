@@ -14,6 +14,7 @@
 
     <modules>
         <module>kafka</module>
+        <module>deepseek-spring-boot-starter</module>
     </modules>
 
     <properties>

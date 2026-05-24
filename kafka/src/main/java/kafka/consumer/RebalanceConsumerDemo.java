@@ -50,7 +50,7 @@ public class RebalanceConsumerDemo {
             int rebalanceCount = 0;
             long lastOffset = 0;
 
-            while (batchNo < 10) {
+            while (true) {
                 ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(1000));
                 if (records.isEmpty()) {
                     System.out.println("  没有新消息...");
@@ -93,9 +93,9 @@ public class RebalanceConsumerDemo {
             consumer.close();
         }
 
-        System.out.println("\n===== 结论 =====");
-        System.out.println("max.poll.records × 单条耗时 > max.poll.interval.ms");
-        System.out.println("→ Consumer 被踢出 Group → Rebalance → 重复消费 → 死循环");
-        System.out.println("解法：调小 max.poll.records / 调大 max.poll.interval.ms / 异步处理");
+//        System.out.println("\n===== 结论 =====");
+//        System.out.println("max.poll.records × 单条耗时 > max.poll.interval.ms");
+//        System.out.println("→ Consumer 被踢出 Group → Rebalance → 重复消费 → 死循环");
+//        System.out.println("解法：调小 max.poll.records / 调大 max.poll.interval.ms / 异步处理");
     }
 }
