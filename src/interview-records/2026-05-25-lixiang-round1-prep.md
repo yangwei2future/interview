@@ -416,12 +416,31 @@ if (semaphore.tryAcquire(100, TimeUnit.MILLISECONDS)) {
                        输出：子问题列表
                                 │
                                 ▼
-              ┌───────────────────────────────────┐
-              │  Step 4: 逐节点执行（isQuery 分支）  │
-              │                                     │
-              │   QUERY 链: 检索 -> Schema -> SQL -> 执行 │
-              │   COMPUTE 链: 等依赖 -> LLM 计算      │
-              └─────────────────┬─────────────────┘
+              ┌───────────────────────────────────────────────┐
+              │        Step 4: 逐节点执行（isQuery 分支）        │
+              │                                               │
+              │  isQuery=true (QUERY 链):                      │
+              │    ┌──────────┐    ┌──────────┐               │
+              │    │ RAG检索   │    │ MCP检索   │  ← 并行      │
+              │    │指标知识库  │    │表Schema   │               │
+              │    └────┬─────┘    └────┬─────┘               │
+              │         └──────┬───────┘                      │
+              │                ▼                              │
+              │         ┌──────────────┐                      │
+              │         │ LLM 生成SQL   │ ← 指标定义+Schema    │
+              │         └──────┬───────┘                      │
+              │                ▼                              │
+              │         ┌──────────────┐                      │
+              │         │ SQL 安全校验   │ ← 语法+Druid+只读账号 │
+              │         └──────┬───────┘                      │
+              │                ▼                              │
+              │         ┌──────────────┐                      │
+              │         │   执行SQL     │                      │
+              │         └──────────────┘                      │
+              │                                               │
+              │  isQuery=false (COMPUTE 链):                   │
+              │    等依赖完成 → LLM 计算/推理                    │
+              └─────────────────┬─────────────────────────────┘
                                 │
                        合并结果（MULTI_TURN）
                                 │
@@ -438,18 +457,26 @@ SINGLE_TURN 跳过 Step 2+3，直接到 Step 4 走 QUERY 链。
 MULTI_TURN 先拆解再调度，最后每个节点逐个执行。
 
 **分叉点 2 — 节点执行（QUERY vs COMPUTE）：**
+
 | | QUERY 节点 | COMPUTE 节点 |
 |------|------|------|
 | isQuery | true | false |
-| 执行链 | 检索指标 -> 获取Schema -> LLM生成SQL -> 执行SQL | 等依赖完成 -> LLM 计算/推理 |
+| 做什么 | 查数据库取数据 | 纯计算/推理 |
+| 执行链 | RAG检索 + MCP检索（并行）→ LLM生成SQL → 校验 → 执行 | 等依赖完成 → LLM 计算 |
 | 示例 | "查L6销量"、"查L7销量" | "算增长率"、"比较排名" |
 
-**以"L6和L7哪个增长更快"为例的 3 层执行：**
+**QUERY 链关键设计：RAG 和 MCP 为什么并行？**
+
+RAG（查指标定义"GMV=sum(order_amount) where status='paid'"）和 MCP（查表结构"orders表有哪些字段"）互不依赖，放在两个独立链并行执行后合并，减少串行等待时间。从 2 次 LLM 调用串行 → 1 次等待。
+
+**以"L6和L7哪个增长更快"为例：**
 ```
-Layer 0: step 1-4 走 QUERY 链，4 条 SQL 并行发出
-Layer 1: step 5-6 走 COMPUTE 链，拿 Layer 0 结果 -> LLM 算增长率
-Layer 2: step 7 走 COMPUTE 链，拿 Layer 1 结果 -> LLM 比较排名
-合并 -> 返回
+意图识别 → MULTI_TURN → 拆解 7 步 → DAG 3 层
+
+Layer 0: step 1-4 走 QUERY 链（RAG+MCP并行 → SQL → 执行），4 条 SQL 并行
+Layer 1: step 5-6 走 COMPUTE 链，拿 Layer 0 结果 → LLM 算增长率
+Layer 2: step 7 走 COMPUTE 链，拿 Layer 1 结果 → LLM 比较排名
+合并 → 返回
 ```
 
 **和普通 RAG 的核心区别：**
