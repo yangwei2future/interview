@@ -1,6 +1,7 @@
 package com.example.rag.plan;
 
 import com.example.rag.decompose.SubProblem;
+import com.interview.deepseek.DeepSeekClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -13,10 +14,11 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <pre>
  * QUERY 路径:
- *   search_indicator → get_table_schema → LLM生成SQL → 执行SQL → 结果
+ *   RAG检索(指标定义) + MCP检索(表Schema) 并行
+ *   → LLM生成SQL → 安全校验 → 执行SQL → 结果
  *
  * COMPUTE 路径:
- *   等待依赖结果 → LLM 基于结果计算/比较 → 结果
+ *   从 results Map 拿依赖结果 → LLM 计算/推理 → 结果
  * </pre>
  */
 @Service
@@ -24,15 +26,13 @@ public class NodeExecutor {
 
     private static final Logger log = LoggerFactory.getLogger(NodeExecutor.class);
 
-    /** 已完成的节点结果缓存，供 COMPUTE 节点读取依赖 */
+    private final DeepSeekClient llm;
     private final Map<String, Object> results = new ConcurrentHashMap<>();
 
-    /**
-     * 执行单个节点，根据类型分发。
-     *
-     * @param node 子问题
-     * @return 执行结果（查询结果 JSON / 计算结果字符串）
-     */
+    public NodeExecutor(DeepSeekClient llm) {
+        this.llm = llm;
+    }
+
     public Object execute(SubProblem node) {
         if (node.isQuery()) {
             return executeQuery(node);
@@ -41,50 +41,71 @@ public class NodeExecutor {
         }
     }
 
-    /**
-     * QUERY 路径：检索 → Schema → 生成SQL → 执行SQL。
-     *
-     * <p>当前占位实现，下一模块（双层检索 + SQL 生成）完成后串联。</p>
-     */
+    // ==================== QUERY 链 ====================
+
     private Object executeQuery(SubProblem node) {
         log.info("[QUERY] {}: {}", node.getId(), node.getDescription());
 
-        // TODO: 串联双层检索 + SQL 生成 + 执行
-        // 1. search_indicator(node.description)  → 指标定义
-        // 2. get_table_schema(table)             → 表结构
-        // 3. generate_sql(指标定义 + Schema + 问题) → SQL
-        // 4. execute_sql(sql)                    → 结果
+        // TODO: 接上双层检索 + SQL 执行后替换此占位
+        // 1. RAG: search_indicator(description) → 指标定义
+        // 2. MCP: get_table_schema(table)      → 字段列表
+        // 3. LLM: generate_sql(指标+Schema+问题) → SQL
+        // 4. 校验 + 执行 SQL
 
-        Object result = "[QUERY-STUB] " + node.getId() + ": " + node.getDescription();
+        // 当前用模拟数据让 COMPUTE 节点能跑通
+        Object result = generateMockQueryResult(node);
         results.put(node.getId(), result);
         return result;
     }
 
-    /**
-     * COMPUTE 路径：基于依赖结果做计算/推理。
-     *
-     * <p>当前占位实现，后续接入 LLM 做计算推理。</p>
-     */
-    private Object executeCompute(SubProblem node) {
-        log.info("[COMPUTE] {}: {}, dependsOn={}", node.getId(),
-                node.getDescription(), node.getDependsOn());
+    /** 模拟查询结果，让后续 COMPUTE 节点有数据可算 */
+    private Object generateMockQueryResult(SubProblem node) {
+        String desc = node.getDescription().toLowerCase();
+        // L6 2026 → 120000, L7 2026 → 95000
+        if (desc.contains("l6") && desc.contains("2026")) return Map.of("model", "L6", "year", 2026, "sales", 120000);
+        if (desc.contains("l7") && desc.contains("2026")) return Map.of("model", "L7", "year", 2026, "sales", 95000);
+        if (desc.contains("l6") && desc.contains("2025")) return Map.of("model", "L6", "year", 2025, "sales", 100000);
+        if (desc.contains("l7") && desc.contains("2025")) return Map.of("model", "L7", "year", 2025, "sales", 70000);
+        return Map.of("sales", 100000);
+    }
 
-        // 收集依赖结果
-        StringBuilder context = new StringBuilder();
+    // ==================== COMPUTE 链 ====================
+
+    private Object executeCompute(SubProblem node) {
+        log.info("[COMPUTE] {}: {}, dependsOn={}",
+                node.getId(), node.getDescription(), node.getDependsOn());
+
+        // 从缓存拿依赖节点的结果
+        StringBuilder ctx = new StringBuilder();
         for (String depId : node.getDependsOn()) {
-            Object depResult = results.get(depId);
-            context.append(depId).append("=").append(depResult).append("; ");
+            ctx.append(depId).append("=").append(results.get(depId)).append("\n");
         }
 
-        // TODO: LLM 基于 context + description 做计算
-        // String result = deepSeekClient.chat(computePrompt, context + "\n" + node.description);
+        // 让 LLM 基于依赖结果做计算
+        String prompt = """
+                你是一个数据分析助手。根据已有数据完成计算任务。
 
-        Object result = "[COMPUTE-STUB] " + node.getId() + ": " + node.getDescription()
-                + " (inputs: " + context + ")";
-        results.put(node.getId(), result);
-        return result;
+                已有数据：
+                %s
+
+                任务：%s
+
+                只返回计算结果，不要解释过程。
+                """.formatted(ctx, node.getDescription());
+
+        String answer = llm.chat(prompt);
+        log.info("[COMPUTE] {} 结果: {}", node.getId(), answer);
+        results.put(node.getId(), answer);
+        return answer;
     }
 
-    /** 清空结果缓存 */
-    public void clear() { results.clear(); }
+    // ==================== 工具方法 ====================
+
+    public Map<String, Object> getAllResults() {
+        return Map.copyOf(results);
+    }
+
+    public void clear() {
+        results.clear();
+    }
 }
