@@ -1,5 +1,6 @@
 package com.example.rag.controller;
 
+import com.example.rag.decompose.DagScheduler;
 import com.example.rag.decompose.DecomposeResult;
 import com.example.rag.decompose.DecomposeService;
 import com.example.rag.decompose.SubProblem;
@@ -54,10 +55,25 @@ public class DecomposeController {
             ));
         }
 
+        // DAG 调度：拓扑排序 + 分层
+        List<List<SubProblem>> levels = DagScheduler.schedule(result.getSubProblems());
+        List<Map<String, Object>> schedule = new ArrayList<>();
+        for (int i = 0; i < levels.size(); i++) {
+            List<String> ids = levels.get(i).stream().map(SubProblem::getId).toList();
+            schedule.add(Map.of(
+                    "layer", i,
+                    "parallel", true,
+                    "nodes", ids,
+                    "count", ids.size()
+            ));
+        }
+
         return Map.of(
                 "query", query,
                 "subProblemCount", subList.size(),
-                "subProblems", subList
+                "subProblems", subList,
+                "schedule", schedule,
+                "totalLayers", levels.size()
         );
     }
 }
