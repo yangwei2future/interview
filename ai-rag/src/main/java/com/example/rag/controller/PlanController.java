@@ -46,17 +46,22 @@ public class PlanController {
 
         PlanResult result = planService.plan(query);
 
-        // 构建分层调度明细
+        // 构建分层调度明细，区分 QUERY vs COMPUTE 路径
         List<Map<String, Object>> schedule = new ArrayList<>();
         for (int i = 0; i < result.getSchedule().size(); i++) {
             List<SubProblem> layer = result.getSchedule().get(i);
             List<Map<String, Object>> details = new ArrayList<>();
             for (SubProblem sp : layer) {
+                String execPath = sp.isQuery() ? "QUERY" : "COMPUTE";
+                String execPipeline = sp.isQuery()
+                        ? "检索指标 → 获取Schema → LLM生成SQL → 执行SQL"
+                        : "等待依赖结果 → LLM计算/推理";
                 details.add(Map.of(
                         "id", sp.getId(),
                         "description", sp.getDescription(),
-                        "dependsOn", sp.getDependsOn(),
-                        "query", sp.isQuery()
+                        "execPath", execPath,
+                        "execPipeline", execPipeline,
+                        "dependsOn", sp.getDependsOn()
                 ));
             }
             schedule.add(Map.of(
@@ -73,6 +78,8 @@ public class PlanController {
                 "reasoning", result.getReasoning(),
                 "totalLayers", result.getTotalLayers(),
                 "totalSubProblems", result.getSubProblems().size(),
+                "queryCount", result.getQueryCount(),
+                "computeCount", result.getComputeCount(),
                 "schedule", schedule
         );
     }
