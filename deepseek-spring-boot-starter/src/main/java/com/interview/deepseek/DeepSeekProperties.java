@@ -12,7 +12,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *   max-tokens: 2048
  *   temperature: 0.7
  */
-@ConfigurationProperties(prefix = "deepseek")
+@ConfigurationProperties(prefix = "deepseek.api")
 public class DeepSeekProperties {
 
     /** API Key（必填） */

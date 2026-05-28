@@ -18,7 +18,7 @@ import org.springframework.context.annotation.ComponentScan;
 @AutoConfiguration
 @ConditionalOnClass(DeepSeekClient.class)
 @EnableConfigurationProperties(DeepSeekProperties.class)
-@ConditionalOnProperty(prefix = "deepseek", name = "api-key")
+@ConditionalOnProperty(prefix = "deepseek.api", name = "api-key")
 public class DeepSeekAutoConfiguration {
 
     @Bean

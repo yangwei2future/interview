@@ -41,6 +41,11 @@ public class DeepSeekClient {
      * @return 模型回复内容
      */
     public String chat(String systemPrompt, String userMessage) {
+        System.err.println("[DeepSeekClient] url=" + properties.getBaseUrl()
+                + ", model=" + properties.getModel()
+                + ", apiKey=" + (properties.getApiKey() != null
+                    ? properties.getApiKey().substring(0, 10) + "..." : "NULL"));
+
         DeepSeekChatRequest.Message systemMsg =
                 new DeepSeekChatRequest.Message("system", systemPrompt);
         DeepSeekChatRequest.Message userMsg =
