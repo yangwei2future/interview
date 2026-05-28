@@ -1,0 +1,14 @@
+server:
+  port: 8080
+
+deepseek:
+  api:
+    api-key: sk-20d485137ada40ab9cb2ee3b8feb485d
+    base-url: https://api.deepseek.com
+    model: deepseek-chat
+    max-tokens: 2048
+    temperature: 0.0  # 意图识别需要确定性，设为 0
+
+logging:
+  level:
+    com.example.rag: DEBUG
