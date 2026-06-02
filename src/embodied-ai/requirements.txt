@@ -1,0 +1,30 @@
+# Embodied AI Data Pipeline - Python Dependencies
+# Install: pip install -r requirements.txt
+
+# Simulation
+mani_skill>=3.0.0
+
+# Data processing
+numpy>=1.24.0
+pandas>=2.0.0
+pyarrow>=14.0.0     # Apache Arrow / Parquet
+pillow>=10.0.0      # Image processing
+opencv-python>=4.8.0 # Image quality checks
+scipy>=1.11.0       # Signal processing, SSIM
+
+# Video encoding
+av>=11.0.0          # PyAV for video read/write
+ffmpeg-python>=0.2.0
+
+# LeRobot (HuggingFace embodied data format)
+# Install from source for latest features:
+# pip install git+https://github.com/huggingface/lerobot.git
+lerobot
+
+# VLM annotation (optional - only needed if annotation enabled)
+openai>=1.0.0       # GPT-4V API
+# google-generativeai  # Gemini API (uncomment if using Gemini)
+
+# Visualization & debugging
+matplotlib>=3.7.0
+tqdm>=4.65.0        # Progress bars
